@@ -10,11 +10,8 @@ export async function POST(
     try {
         const { id } = await params;
 
-        // Cancel in queue
         queue.cancel(id);
 
-        // Double check DB status update if queue didn't handle it (redundant but safe)
-        // queue.cancel updates DB, but we fetch updated state to return
         const testRun = await prisma.testRun.findUnique({
             where: { id }
         });

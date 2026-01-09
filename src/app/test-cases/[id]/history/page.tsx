@@ -57,7 +57,6 @@ export default function HistoryPage({ params }: { params: Promise<{ id: string }
                 const data = await response.json();
                 setTestCaseName(data.name);
                 setProjectId(data.projectId);
-                // Fetch project name
                 const projectResponse = await fetch(`/api/projects/${data.projectId}`);
                 if (projectResponse.ok) {
                     const projectData = await projectResponse.json();
@@ -189,8 +188,12 @@ export default function HistoryPage({ params }: { params: Promise<{ id: string }
                                         )}
                                         <button
                                             onClick={() => setDeleteModal({ isOpen: true, runId: run.id, status: run.status })}
-                                            className="p-2 text-gray-400 hover:text-red-600 transition-colors"
-                                            title="Delete Run"
+                                            disabled={['RUNNING', 'QUEUED'].includes(run.status)}
+                                            className={`p-2 transition-colors ${['RUNNING', 'QUEUED'].includes(run.status)
+                                                    ? 'text-gray-300 cursor-not-allowed'
+                                                    : 'text-gray-400 hover:text-red-600'
+                                                }`}
+                                            title={['RUNNING', 'QUEUED'].includes(run.status) ? "Cannot delete while running or queued" : "Delete Run"}
                                             aria-label="Delete Run"
                                         >
                                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

@@ -8,7 +8,6 @@ export async function POST(request: Request) {
     const config = await request.json();
     const { url, prompt, steps, browserConfig, testCaseId } = config;
 
-    // Validation
     const hasBrowserConfig = browserConfig && Object.keys(browserConfig).length > 0;
     const hasSteps = steps && steps.length > 0;
     const hasPrompt = !!prompt;
@@ -28,13 +27,6 @@ export async function POST(request: Request) {
     }
 
     try {
-        // Create TestRun record
-        // If we have a testCaseId, link it. If not, we might need a "detached" run or require testCaseId.
-        // The previous code had "activeTestCaseId" in the frontend. 
-        // If the user runs a generic "new run", the frontend usually creates a test case first.
-        // Let's assume testCaseId is provided. If not, we might fail or create a temp one?
-        // Schema says `testCaseId` is required on `TestRun`.
-
         if (!testCaseId) {
             return NextResponse.json(
                 { error: 'TestCase ID is required for background execution' },
@@ -46,11 +38,10 @@ export async function POST(request: Request) {
             data: {
                 testCaseId,
                 status: 'QUEUED',
-                configurationSnapshot: JSON.stringify(config) // Save config snapshot
+                configurationSnapshot: JSON.stringify(config)
             }
         });
 
-        // Add to Queue
         await queue.add(testRun.id, config);
 
         return NextResponse.json({ runId: testRun.id });

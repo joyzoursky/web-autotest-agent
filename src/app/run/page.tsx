@@ -20,7 +20,7 @@ interface TestData {
 }
 
 interface TestResult {
-    status: 'IDLE' | 'RUNNING' | 'PASS' | 'FAIL' | 'CANCELLED';
+    status: 'IDLE' | 'RUNNING' | 'PASS' | 'FAIL' | 'CANCELLED' | 'QUEUED';
     events: TestEvent[];
     error?: string;
 }
@@ -35,7 +35,6 @@ function RunPageContent() {
         status: 'IDLE',
         events: [],
     });
-    // We don't need abortController for the fetch anymore, but maybe for EventSource
     const [eventSource, setEventSource] = useState<EventSource | null>(null);
     const [currentTestCaseId, setCurrentTestCaseId] = useState<string | null>(null);
     const [currentRunId, setCurrentRunId] = useState<string | null>(null);
@@ -73,14 +72,11 @@ function RunPageContent() {
         }
     }, [runId]);
 
-    // Check if current run ID matches active run to hide/show buttons
     useEffect(() => {
         if (currentRunId && activeRunId && currentRunId === activeRunId) {
-            // We are viewing the active run
         }
     }, [currentRunId, activeRunId]);
 
-    // Cleanup EventSource on unmount
     useEffect(() => {
         return () => {
             if (eventSource) {
@@ -95,7 +91,6 @@ function RunPageContent() {
         } else if (testCaseName) {
             setInitialData({ name: testCaseName, url: '', prompt: '' });
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [testCaseId, testCaseName]);
 
     const fetchTestCase = async (id: string) => {
@@ -122,14 +117,11 @@ function RunPageContent() {
                 setProjectIdFromTestCase(data.projectId);
                 fetchProjectName(data.projectId);
 
-                // Check for active run
                 if (data.testRuns && data.testRuns.length > 0) {
                     const latestRun = data.testRuns[0];
                     if (['RUNNING', 'QUEUED'].includes(latestRun.status)) {
                         setActiveRunId(latestRun.id);
-                        // If we are not already viewing a run, maybe prompt or just set state
                         if (!currentRunId) {
-                            // User just landed on page.
                         }
                     } else {
                         setActiveRunId(null);
@@ -147,13 +139,11 @@ function RunPageContent() {
             if (response.ok) {
                 const data = await response.json();
 
-                // If we have a snapshot, restore configuration
                 if (data.configurationSnapshot) {
                     try {
                         const config = JSON.parse(data.configurationSnapshot);
                         setInitialData(config);
 
-                        // Also try to set context if possible
                         if (config.testCaseId) {
                             fetchTestCase(config.testCaseId);
                         }
@@ -182,28 +172,32 @@ function RunPageContent() {
     const connectToRun = (runId: string) => {
         if (eventSource) eventSource.close();
 
-        // Check if run status is already final? Only if we have an API for that.
-        // For now, assume we just connect.
-        setResult(prev => ({ ...prev, status: 'RUNNING', events: [] })); // Reset events or keep them? Resetting safer.
+        // Don't eagerly set to RUNNING, as it might be QUEUED.
+        // If we are connecting, it means we want to see updates.
+        // We should let the event stream or initial fetch determine the status.
+        // But to avoid "IDLE" flash, we can set it to QUEUED if it's currently IDLE, 
+        // or just keep previous status if valid.
+        // Better: Fetch status first or assume QUEUED until proven RUNNING?
+        // Actually, preventing reset to 'RUNNING' is key.
+        setResult(prev => ({
+            ...prev,
+            status: (prev.status === 'IDLE') ? 'QUEUED' : prev.status,
+            events: []
+        }));
         setCurrentRunId(runId);
 
         const es = new EventSource(`/api/test-runs/${runId}/events`);
 
         es.onmessage = (event) => {
             try {
-                // Determine if it's 'data: { ... }' or just '{ ... }'. 
-                // Native EventSource handles 'data:' prefix automatically, 
-                // returning the payload in event.data
                 const data = JSON.parse(event.data);
 
                 if (data.type === 'status') {
                     setResult(prev => {
-                        // If status is final, we might want to close ES
                         if (['PASS', 'FAIL', 'CANCELLED'].includes(data.status)) {
                             es.close();
                             setEventSource(null);
                             setIsLoading(false);
-                            // If user stopped it, we rely on the stream to update status
                         }
                         return { ...prev, status: data.status, error: data.error };
                     });
@@ -219,16 +213,12 @@ function RunPageContent() {
         };
 
         es.onerror = (err) => {
-            // If the connection was closed cleanly or we are in a terminal state, don't error
-            // However, EventSource error object doesn't give much info.
-            // We just close it to be safe and avoid loops.
             console.log('EventSource connection closed or error occurred');
             es.close();
             setEventSource(null);
             setIsLoading(false);
 
             setResult(prev => {
-                // If we already finished, don't show error
                 if (['PASS', 'FAIL', 'CANCELLED'].includes(prev.status)) {
                     return prev;
                 }
@@ -241,14 +231,13 @@ function RunPageContent() {
 
     const handleStopTest = async () => {
         if (currentRunId) {
-            setIsLoading(true); // temporary lock
+            setIsLoading(true);
             try {
                 const response = await fetch(`/api/test-runs/${currentRunId}/cancel`, {
                     method: 'POST'
                 });
                 if (!response.ok) throw new Error('Failed to stop test');
 
-                // UI update will happen via SSE stream eventually, but for responsiveness:
                 setResult(prev => ({ ...prev, status: 'CANCELLED', error: 'Test stopped by user' }));
                 setActiveRunId(null);
             } catch (error) {
@@ -270,7 +259,6 @@ function RunPageContent() {
         let activeTestCaseId = testCaseId;
         const currentMode = (data.steps?.length || data.browserConfig) ? 'builder' : 'simple';
 
-        // 1. Create/Update Test Case Logic (Same as before)
         try {
             const hasSteps = data.steps && data.steps.length > 0;
             const hasBrowserConfig = data.browserConfig && Object.keys(data.browserConfig).length > 0;
@@ -318,7 +306,6 @@ function RunPageContent() {
             return;
         }
 
-        // 2. Submit Job
         try {
             const response = await fetch('/api/run-test', {
                 method: 'POST',
@@ -331,7 +318,6 @@ function RunPageContent() {
             const { runId, error } = await response.json();
             if (error) throw new Error(error);
 
-            // 3. Connect to Stream
             connectToRun(runId);
 
         } catch (error: unknown) {
@@ -382,7 +368,6 @@ function RunPageContent() {
                             <p className="text-blue-700 mb-4">A test is currently running for this test case.</p>
                             <button
                                 onClick={() => {
-                                    // Update URL and connect
                                     window.history.pushState(null, "", `?runId=${activeRunId}&testCaseId=${testCaseId}&projectId=${projectId || projectIdFromTestCase}`);
                                     fetchTestRun(activeRunId);
                                     connectToRun(activeRunId);
@@ -395,10 +380,10 @@ function RunPageContent() {
                     ) : (
                         <TestForm
                             onSubmit={handleRunTest}
-                            isLoading={isLoading || (!!activeRunId && activeRunId === currentRunId)} // Disable if viewing active run (spinner on button if visible, but readOnly hides it)
+                            isLoading={isLoading || (!!activeRunId && activeRunId === currentRunId)}
                             initialData={initialData}
                             showNameInput={true}
-                            readOnly={!!activeRunId} // Use readOnly to disable inputs and hide submit button
+                            readOnly={!!activeRunId}
                         />
                     )}
                 </div>

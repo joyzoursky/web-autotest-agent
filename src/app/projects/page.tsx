@@ -79,10 +79,6 @@ export default function ProjectsPage() {
 
             if (response.ok) {
                 const updatedProject = await response.json();
-                // The API might return the updated project, but if not we can construct it or refresh
-                // Assuming API returns the updated project or we refresh.
-                // Let's refresh to be safe if we don't trust the return, or update locally if we do.
-                // For now, let's just refresh to ensure consistency with server count etc.
                 refresh();
                 setEditModal({ isOpen: false, projectId: "", currentName: "" });
             }

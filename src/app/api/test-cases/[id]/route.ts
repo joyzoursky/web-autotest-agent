@@ -22,7 +22,6 @@ export async function GET(
             return NextResponse.json({ error: 'Test case not found' }, { status: 404 });
         }
 
-        // Parse JSON strings if needed
         const parsedTestCase = {
             ...testCase,
             steps: testCase.steps ? JSON.parse(testCase.steps) : undefined,

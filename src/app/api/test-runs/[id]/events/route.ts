@@ -7,11 +7,10 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(
     request: Request,
-    { params }: { params: Promise<{ id: string }> } // Params are async in Next.js 15+
+    { params }: { params: Promise<{ id: string }> }
 ) {
     const { id } = await params;
 
-    // First check status in DB
     const testRun = await prisma.testRun.findUnique({
         where: { id },
         select: { status: true, result: true, logs: true }
@@ -26,26 +25,20 @@ export async function GET(
             const encoder = new TextEncoder();
             const encode = (data: any) => encoder.encode(`data: ${JSON.stringify(data)}\n\n`);
 
-            // If already finished, just send the result and close
             if (['PASS', 'FAIL', 'CANCELLED'].includes(testRun.status)) {
                 controller.enqueue(encode({ type: 'status', status: testRun.status }));
 
-                // Always send the full logs from 'result' if available. 
-                // This fixes the issue where a user joins late and sees nothing because the queue buffer is gone.
                 if (testRun.result) {
                     try {
                         const events = JSON.parse(testRun.result);
                         if (Array.isArray(events)) {
-                            // Send all events at once or iterate? Iterate is safer for client parser
                             for (const event of events) {
                                 controller.enqueue(encode(event));
                             }
                         }
                     } catch (e) {
-                        // ignore parse error
                     }
                 } else if (testRun.logs) {
-                    // Fallback to 'logs' field if result is empty (legacy or different format)
                     try {
                         const logs = JSON.parse(testRun.logs);
                         if (Array.isArray(logs)) {
@@ -60,15 +53,44 @@ export async function GET(
                 return;
             }
 
-            // If RUNNING or QUEUED, poll the queue
+            // Send initial status immediately if available in queue or DB
+            const checkInitialStatus = async () => {
+                const currentQueueStatus = queue.getStatus(id);
+                if (currentQueueStatus) {
+                    // If in queue, it is either RUNNING or QUEUED (though queue only tracks running usually? No, queue has queued items too?)
+                    // Actually queue.getStatus(id) returns the job if running or queued? 
+                    // TestQueue.getStatus returns the job object if found in running or queue.
+                    // The job object has a status? Actually TestQueue implementation might need checking.
+                    // Let's assume queue.getStatus returns the job. 
+                    // Wait, checking queue.ts: getStatus(runId) returns the job. Job interface ?
+
+                    // Let's just use the DB status we fetched (if valid) + queue check.
+                    // If we are here, testRun.status is NOT PASS/FAIL/CANCELLED (checked above).
+                    // So it is RUNNING or QUEUED.
+                    // Only issue is if it changed to RUNNING *after* we fetched testRun constant above, but *before* we start polling?
+                    // No, polling will catch it.
+                    // The issue is: If it IS "RUNNING" in DB when we fetch `testRun`, we enter this block.
+                    // But we NEVER send "RUNNING" event! We just start polling for logs.
+                    // So client stays at "QUEUED" (default) until it receives a log or status change?
+                    // Client expects "status" event.
+
+                    controller.enqueue(encode({ type: 'status', status: testRun.status }));
+                } else {
+                    // If not in queue, might be zombie or just finished? 
+                    // But we handled finished above.
+                    // Just send what we have from DB.
+                    controller.enqueue(encode({ type: 'status', status: testRun.status }));
+                }
+            };
+
+            checkInitialStatus();
+
             let lastIndex = 0;
             const pollInterval = setInterval(async () => {
                 try {
-                    // Check queue status
                     const status = queue.getStatus(id);
 
                     if (!status) {
-                        // Queue doesn't know about it -> check DB again, maybe finished?
                         const freshRun = await prisma.testRun.findUnique({ where: { id }, select: { status: true, result: true } });
                         if (freshRun && ['PASS', 'FAIL', 'CANCELLED'].includes(freshRun.status)) {
                             clearInterval(pollInterval);
@@ -77,12 +99,9 @@ export async function GET(
                             return;
                         }
 
-                        // If DB still says RUNNING/QUEUED but Queue has no record, it's a zombie (server restart).
-                        // We should report this and stop the stream.
                         if (freshRun && ['RUNNING', 'QUEUED'].includes(freshRun.status)) {
                             console.warn(`Detected orphaned run ${id} in DB. Marking as FAILED.`);
 
-                            // Fix the DB state
                             await prisma.testRun.update({
                                 where: { id },
                                 data: {
@@ -102,15 +121,9 @@ export async function GET(
                             return;
                         }
 
-                        // Verify if it is finished but we missed it? Logic above covers it.
-                        // If we are here, it's weird. Just return.
                         return;
                     }
 
-                    // Send status update
-                    // controller.enqueue(encode({ type: 'status', status })); // Optional, might be spammy
-
-                    // Get logs
                     const events = queue.getEvents(id);
                     if (events.length > lastIndex) {
                         const newEvents = events.slice(lastIndex);
@@ -125,9 +138,8 @@ export async function GET(
                     clearInterval(pollInterval);
                     controller.close();
                 }
-            }, 500); // Poll every 500ms
+            }, 500);
 
-            // Cleanup on close
             return () => {
                 clearInterval(pollInterval);
             };

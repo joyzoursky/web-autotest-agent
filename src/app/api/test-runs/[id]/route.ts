@@ -32,7 +32,6 @@ export async function DELETE(
     try {
         const { id } = await params;
 
-        // Cancel if running
         try {
             queue.cancel(id);
         } catch (e) {

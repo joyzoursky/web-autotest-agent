@@ -36,8 +36,6 @@ export async function POST(
         const body = await request.json();
         const { name, url, prompt, steps, browserConfig, username, password } = body;
 
-        // Validation: Name and URL are required.
-        // Prompt is required ONLY if steps are missing/empty.
         const hasSteps = steps && Array.isArray(steps) && steps.length > 0;
         const hasBrowserConfig = browserConfig && Object.keys(browserConfig).length > 0;
 

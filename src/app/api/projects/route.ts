@@ -46,7 +46,6 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Valid User ID is required' }, { status: 400 });
         }
 
-        // Ensure user exists
         let user = await prisma.user.findUnique({
             where: { authId: userId },
         });

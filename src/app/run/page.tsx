@@ -25,6 +25,7 @@ interface TestResult {
     error?: string;
 }
 
+
 function RunPageContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
@@ -34,17 +35,22 @@ function RunPageContent() {
         status: 'IDLE',
         events: [],
     });
-    const [abortController, setAbortController] = useState<AbortController | null>(null);
+    // We don't need abortController for the fetch anymore, but maybe for EventSource
+    const [eventSource, setEventSource] = useState<EventSource | null>(null);
     const [currentTestCaseId, setCurrentTestCaseId] = useState<string | null>(null);
+    const [currentRunId, setCurrentRunId] = useState<string | null>(null);
     const [projectIdFromTestCase, setProjectIdFromTestCase] = useState<string | null>(null);
     const [projectName, setProjectName] = useState<string>('');
 
     const projectId = searchParams.get("projectId");
+    const runId = searchParams.get("runId");
     const testCaseId = searchParams.get("testCaseId");
     const testCaseName = searchParams.get("name");
     const [initialData, setInitialData] = useState<TestData | undefined>(undefined);
     const [originalName, setOriginalName] = useState<string | null>(null);
     const [originalMode, setOriginalMode] = useState<'simple' | 'builder' | null>(null);
+
+    const [activeRunId, setActiveRunId] = useState<string | null>(null);
 
     useEffect(() => {
         if (!isAuthLoading && !isLoggedIn) {
@@ -53,37 +59,40 @@ function RunPageContent() {
     }, [isAuthLoading, isLoggedIn, router]);
 
     useEffect(() => {
-        // Fetch project name if projectId is in URL
-        if (projectId) {
-            fetchProjectName(projectId);
-        }
+        if (projectId) fetchProjectName(projectId);
     }, [projectId]);
 
     useEffect(() => {
-        // Fetch project name if we got projectId from test case
-        if (projectIdFromTestCase && !projectId) {
-            fetchProjectName(projectIdFromTestCase);
-        }
+        if (projectIdFromTestCase && !projectId) fetchProjectName(projectIdFromTestCase);
     }, [projectIdFromTestCase, projectId]);
 
-    // Prevent navigation away from page during active test
     useEffect(() => {
-        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-            if (result.status === 'RUNNING') {
-                e.preventDefault();
-                e.returnValue = '';
+        if (runId) {
+            fetchTestRun(runId);
+            connectToRun(runId);
+        }
+    }, [runId]);
+
+    // Check if current run ID matches active run to hide/show buttons
+    useEffect(() => {
+        if (currentRunId && activeRunId && currentRunId === activeRunId) {
+            // We are viewing the active run
+        }
+    }, [currentRunId, activeRunId]);
+
+    // Cleanup EventSource on unmount
+    useEffect(() => {
+        return () => {
+            if (eventSource) {
+                eventSource.close();
             }
         };
-
-        window.addEventListener('beforeunload', handleBeforeUnload);
-        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-    }, [result.status]);
+    }, [eventSource]);
 
     useEffect(() => {
         if (testCaseId) {
             fetchTestCase(testCaseId);
         } else if (testCaseName) {
-            // Pre-fill just the name for new runs from test case page
             setInitialData({ name: testCaseName, url: '', prompt: '' });
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -108,17 +117,53 @@ function RunPageContent() {
                     browserConfig: data.browserConfig,
                 });
 
-                // Store original values to detect changes
                 setOriginalName(data.name);
                 setOriginalMode(mode);
-
-                // Store the projectId from the test case for back navigation
                 setProjectIdFromTestCase(data.projectId);
-                // Fetch project name for breadcrumb
                 fetchProjectName(data.projectId);
+
+                // Check for active run
+                if (data.testRuns && data.testRuns.length > 0) {
+                    const latestRun = data.testRuns[0];
+                    if (['RUNNING', 'QUEUED'].includes(latestRun.status)) {
+                        setActiveRunId(latestRun.id);
+                        // If we are not already viewing a run, maybe prompt or just set state
+                        if (!currentRunId) {
+                            // User just landed on page.
+                        }
+                    } else {
+                        setActiveRunId(null);
+                    }
+                }
             }
         } catch (error) {
             console.error("Failed to fetch test case", error);
+        }
+    };
+
+    const fetchTestRun = async (id: string) => {
+        try {
+            const response = await fetch(`/api/test-runs/${id}`);
+            if (response.ok) {
+                const data = await response.json();
+
+                // If we have a snapshot, restore configuration
+                if (data.configurationSnapshot) {
+                    try {
+                        const config = JSON.parse(data.configurationSnapshot);
+                        setInitialData(config);
+
+                        // Also try to set context if possible
+                        if (config.testCaseId) {
+                            fetchTestCase(config.testCaseId);
+                        }
+                    } catch (e) {
+                        console.error("Failed to parse configuration snapshot", e);
+                    }
+                }
+            }
+        } catch (error) {
+            console.error("Failed to fetch test run", error);
         }
     };
 
@@ -134,55 +179,113 @@ function RunPageContent() {
         }
     };
 
+    const connectToRun = (runId: string) => {
+        if (eventSource) eventSource.close();
+
+        // Check if run status is already final? Only if we have an API for that.
+        // For now, assume we just connect.
+        setResult(prev => ({ ...prev, status: 'RUNNING', events: [] })); // Reset events or keep them? Resetting safer.
+        setCurrentRunId(runId);
+
+        const es = new EventSource(`/api/test-runs/${runId}/events`);
+
+        es.onmessage = (event) => {
+            try {
+                // Determine if it's 'data: { ... }' or just '{ ... }'. 
+                // Native EventSource handles 'data:' prefix automatically, 
+                // returning the payload in event.data
+                const data = JSON.parse(event.data);
+
+                if (data.type === 'status') {
+                    setResult(prev => {
+                        // If status is final, we might want to close ES
+                        if (['PASS', 'FAIL', 'CANCELLED'].includes(data.status)) {
+                            es.close();
+                            setEventSource(null);
+                            setIsLoading(false);
+                            // If user stopped it, we rely on the stream to update status
+                        }
+                        return { ...prev, status: data.status, error: data.error };
+                    });
+                } else if (data.type === 'log' || data.type === 'screenshot') {
+                    setResult(prev => ({
+                        ...prev,
+                        events: [...prev.events, data]
+                    }));
+                }
+            } catch (e) {
+                console.error('Failed to parse event', e);
+            }
+        };
+
+        es.onerror = (err) => {
+            // If the connection was closed cleanly or we are in a terminal state, don't error
+            // However, EventSource error object doesn't give much info.
+            // We just close it to be safe and avoid loops.
+            console.log('EventSource connection closed or error occurred');
+            es.close();
+            setEventSource(null);
+            setIsLoading(false);
+
+            setResult(prev => {
+                // If we already finished, don't show error
+                if (['PASS', 'FAIL', 'CANCELLED'].includes(prev.status)) {
+                    return prev;
+                }
+                return { ...prev, error: 'Connection lost. Please refresh to check status.' };
+            });
+        };
+
+        setEventSource(es);
+    };
+
     const handleStopTest = async () => {
-        if (abortController) {
-            abortController.abort();
-            setAbortController(null);
+        if (currentRunId) {
+            setIsLoading(true); // temporary lock
+            try {
+                const response = await fetch(`/api/test-runs/${currentRunId}/cancel`, {
+                    method: 'POST'
+                });
+                if (!response.ok) throw new Error('Failed to stop test');
+
+                // UI update will happen via SSE stream eventually, but for responsiveness:
+                setResult(prev => ({ ...prev, status: 'CANCELLED', error: 'Test stopped by user' }));
+                setActiveRunId(null);
+            } catch (error) {
+                console.error('Failed to stop test', error);
+                alert('Failed to stop test');
+            } finally {
+                setIsLoading(false);
+            }
         }
     };
 
-    const eventsRef = useRef<TestEvent[]>([]);
-
     const handleRunTest = async (data: TestData) => {
-        const controller = new AbortController();
-        setAbortController(controller);
         setIsLoading(true);
-        // Reset events ref
-        eventsRef.current = [];
-
         setResult({
-            status: 'RUNNING',
+            status: 'IDLE',
             events: [],
         });
 
         let activeTestCaseId = testCaseId;
+        const currentMode = (data.steps?.length || data.browserConfig) ? 'builder' : 'simple';
 
-        // Detect current mode from the data
-        const hasSteps = data.steps && data.steps.length > 0;
-        const hasBrowserConfig = data.browserConfig && Object.keys(data.browserConfig).length > 0;
-        const currentMode = (hasSteps || hasBrowserConfig) ? 'builder' : 'simple';
-
-        // Check if name or mode has changed - if so, create a new test case
-        const nameChanged = originalName && data.name && data.name !== originalName;
-        const modeChanged = originalMode && currentMode !== originalMode;
-        const shouldCreateNew = nameChanged || modeChanged;
-
-        // 1. Create or Update Test Case (ALWAYS do this before running the test)
+        // 1. Create/Update Test Case Logic (Same as before)
         try {
+            const hasSteps = data.steps && data.steps.length > 0;
+            const hasBrowserConfig = data.browserConfig && Object.keys(data.browserConfig).length > 0;
+
+            const nameChanged = originalName && data.name && data.name !== originalName;
+            const modeChanged = originalMode && currentMode !== originalMode;
+            const shouldCreateNew = nameChanged || modeChanged;
+
             if (activeTestCaseId && !shouldCreateNew) {
-                // Update existing test case (only if name and mode haven't changed)
-                const updateResponse = await fetch(`/api/test-cases/${activeTestCaseId}`, {
+                await fetch(`/api/test-cases/${activeTestCaseId}`, {
                     method: "PUT",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(data),
                 });
-                if (!updateResponse.ok) {
-                    console.error("Failed to update test case");
-                }
             } else if ((activeTestCaseId && shouldCreateNew) || (!activeTestCaseId && projectId && data.name)) {
-                // Create new test case if:
-                // 1. Editing existing but name/mode changed, OR
-                // 2. Creating completely new test case
                 const effectiveProjectId = projectId || projectIdFromTestCase;
                 if (effectiveProjectId) {
                     const response = await fetch(`/api/projects/${effectiveProjectId}/test-cases`, {
@@ -194,145 +297,50 @@ function RunPageContent() {
                         const newTestCase = await response.json();
                         activeTestCaseId = newTestCase.id;
                         setCurrentTestCaseId(activeTestCaseId);
-                        // Update URL without reload so we can save to this test case even if cancelled
                         window.history.replaceState(null, "", `?testCaseId=${activeTestCaseId}&projectId=${effectiveProjectId}`);
-                        // Update original values to prevent duplicate creation
                         setOriginalName(data.name || null);
                         setOriginalMode(currentMode);
                     } else {
-                        // If we can't create the test case, don't continue
-                        const errorText = await response.text();
-                        console.error("Failed to create test case:", errorText);
-                        setResult({ status: 'FAIL', events: [], error: `Failed to create test case: ${response.statusText}` });
-                        setIsLoading(false);
-                        return;
+                        throw new Error('Failed to create test case');
                     }
                 }
             }
-            // If no projectId and no testCaseId, we can't save the test, but allow it to run anyway
         } catch (error) {
             console.error("Failed to save test case", error);
-            setResult({ status: 'FAIL', events: [], error: `Failed to save test case: ${error instanceof Error ? error.message : 'Unknown error'}` });
+            setResult({ status: 'FAIL', events: [], error: 'Failed to save test case' });
             setIsLoading(false);
             return;
         }
 
-        // 2. Run Test
+        if (!activeTestCaseId) {
+            setResult({ status: 'FAIL', events: [], error: 'Please select or create a test case first.' });
+            setIsLoading(false);
+            return;
+        }
+
+        // 2. Submit Job
         try {
             const response = await fetch('/api/run-test', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data),
-                signal: controller.signal,
+                body: JSON.stringify({ ...data, testCaseId: activeTestCaseId }),
             });
 
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-            if (!response.body) throw new Error('No response body');
 
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = '';
-            let finalStatus: string | null = null;
-            let finalEvents: TestEvent[] = [];
+            const { runId, error } = await response.json();
+            if (error) throw new Error(error);
 
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n\n');
-                buffer = lines.pop() || '';
-
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
-                        try {
-                            const eventData = JSON.parse(line.slice(6));
-
-                            setResult(prev => {
-                                const newEvents = [...prev.events];
-                                if (eventData.type === 'log' || eventData.type === 'screenshot') {
-                                    const event = { ...eventData, timestamp: Date.now() };
-                                    newEvents.push(event);
-                                    // Update ref
-                                    eventsRef.current = newEvents;
-                                } else if (eventData.type === 'status') {
-                                    finalStatus = eventData.status;
-                                    return { ...prev, status: eventData.status, error: eventData.error };
-                                }
-                                finalEvents = newEvents;
-                                return { ...prev, events: newEvents };
-                            });
-                        } catch (e) {
-                            console.error('Error parsing SSE data:', e);
-                        }
-                    }
-                }
-            }
-
-            // Check if we finished without a final status
-            if (!finalStatus) {
-                // Stream ended but we didn't get a status event.
-                // This usually means timeout or server crash.
-                finalStatus = 'FAIL';
-                const errorMsg = 'Test run terminated unexpectedly (possibly timed out)';
-                setResult(prev => ({ ...prev, status: 'FAIL', error: errorMsg }));
-            }
-
-            // 3. Save Test Run Result with test configuration snapshot
-            if (activeTestCaseId) {
-                await fetch(`/api/test-cases/${activeTestCaseId}/run`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        status: finalStatus,
-                        result: finalEvents,
-                        error: result.error,
-                        testConfig: data, // Save the test configuration that was actually run
-                    }),
-                });
-            }
+            // 3. Connect to Stream
+            connectToRun(runId);
 
         } catch (error: unknown) {
-            // Check if error is due to abort
-            if (error instanceof Error && error.name === 'AbortError') {
-                const cancelledEvents = eventsRef.current;
-                setResult({ status: 'CANCELLED', events: cancelledEvents, error: 'Test was cancelled by user' });
-
-                // Save cancelled run with partial results
-                if (activeTestCaseId) {
-                    await fetch(`/api/test-cases/${activeTestCaseId}/run`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            status: 'CANCELLED',
-                            result: cancelledEvents,
-                            error: 'Test was cancelled by user',
-                            testConfig: data, // Save the test configuration that was run
-                        }),
-                    }).catch(err => console.error('Failed to save cancelled run:', err));
-                }
-            } else {
-                const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
-                setResult(prev => ({ ...prev, status: 'FAIL', error: errorMessage }));
-
-                // Save failed run
-                if (activeTestCaseId) {
-                    await fetch(`/api/test-cases/${activeTestCaseId}/run`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            status: 'FAIL',
-                            result: [],
-                            error: errorMessage,
-                            testConfig: data, // Save the test configuration that was run
-                        }),
-                    });
-                }
-            }
-        } finally {
+            const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';
+            setResult(prev => ({ ...prev, status: 'FAIL', error: errorMessage }));
             setIsLoading(false);
         }
     };
+
 
 
 
@@ -368,12 +376,31 @@ function RunPageContent() {
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
                 <div className="space-y-6">
-                    <TestForm
-                        onSubmit={handleRunTest}
-                        isLoading={isLoading}
-                        initialData={initialData}
-                        showNameInput={true}
-                    />
+                    {activeRunId && activeRunId !== currentRunId ? (
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 text-center">
+                            <h3 className="text-lg font-semibold text-blue-900 mb-2">Test in Progress</h3>
+                            <p className="text-blue-700 mb-4">A test is currently running for this test case.</p>
+                            <button
+                                onClick={() => {
+                                    // Update URL and connect
+                                    window.history.pushState(null, "", `?runId=${activeRunId}&testCaseId=${testCaseId}&projectId=${projectId || projectIdFromTestCase}`);
+                                    fetchTestRun(activeRunId);
+                                    connectToRun(activeRunId);
+                                }}
+                                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                            >
+                                View Running Test
+                            </button>
+                        </div>
+                    ) : (
+                        <TestForm
+                            onSubmit={handleRunTest}
+                            isLoading={isLoading || (!!activeRunId && activeRunId === currentRunId)} // Disable if viewing active run (spinner on button if visible, but readOnly hides it)
+                            initialData={initialData}
+                            showNameInput={true}
+                            readOnly={!!activeRunId} // Use readOnly to disable inputs and hide submit button
+                        />
+                    )}
                 </div>
                 <div className="h-full">
                     <ResultViewer result={result} />

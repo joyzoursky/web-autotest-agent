@@ -10,6 +10,7 @@ import Breadcrumbs from "@/components/Breadcrumbs";
 import { formatDateTimeCompact } from "@/utils/dateFormatter";
 
 interface TestRun {
+    id: string;
     status: string;
     createdAt: string;
 }
@@ -43,6 +44,13 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
     useEffect(() => {
         fetchTestCases();
         fetchProjectName();
+
+        const onFocus = () => {
+            fetchTestCases();
+        };
+
+        window.addEventListener('focus', onFocus);
+        return () => window.removeEventListener('focus', onFocus);
     }, [id]);
 
     const fetchProjectName = async () => {
@@ -192,20 +200,35 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                                             {formatDateTimeCompact(testCase.updatedAt)}
                                         </div>
                                         <div className="md:col-span-2 flex justify-end gap-2">
-                                            <Link
-                                                href={`/run?testCaseId=${testCase.id}&name=${encodeURIComponent(testCase.name)}`}
-                                                className="p-2 text-gray-400 hover:text-primary transition-colors inline-flex items-center justify-center"
-                                                title="Run Test"
-                                                aria-label="Run Test"
-                                            >
-                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                                </svg>
-                                            </Link>
+                                            {(!testCase.testRuns[0] || !['RUNNING', 'QUEUED'].includes(testCase.testRuns[0].status)) && (
+                                                <Link
+                                                    href={`/run?testCaseId=${testCase.id}&name=${encodeURIComponent(testCase.name)}`}
+                                                    className="p-2 text-gray-500 hover:text-primary hover:bg-primary/10 rounded-md transition-colors inline-flex items-center justify-center"
+                                                    title="Run Test"
+                                                    aria-label="Run Test"
+                                                >
+                                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    </svg>
+                                                </Link>
+                                            )}
+                                            {testCase.testRuns[0] && ['RUNNING', 'QUEUED'].includes(testCase.testRuns[0].status) && (
+                                                <Link
+                                                    href={`/run?runId=${testCase.testRuns[0].id}&testCaseId=${testCase.id}`}
+                                                    className="p-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-md transition-colors inline-flex items-center justify-center animate-pulse"
+                                                    title="View Running Test"
+                                                    aria-label="View Running Test"
+                                                >
+                                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                                    </svg>
+                                                </Link>
+                                            )}
                                             <Link
                                                 href={`/test-cases/${testCase.id}/history`}
-                                                className="p-2 text-gray-400 hover:text-blue-600 transition-colors inline-flex items-center justify-center"
+                                                className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors inline-flex items-center justify-center"
                                                 title="View History"
                                                 aria-label="View History"
                                             >
@@ -215,7 +238,7 @@ export default function ProjectPage({ params }: { params: Promise<{ id: string }
                                             </Link>
                                             <button
                                                 onClick={() => setDeleteModal({ isOpen: true, testCaseId: testCase.id, testCaseName: testCase.name })}
-                                                className="p-2 text-gray-400 hover:text-red-600 transition-colors inline-flex items-center justify-center"
+                                                className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors inline-flex items-center justify-center"
                                                 title="Delete Test Case"
                                                 aria-label="Delete Test Case"
                                             >

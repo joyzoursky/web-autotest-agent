@@ -48,9 +48,12 @@ model TestRun {
   id                      String   @id @default(cuid())
   testCaseId              String
   testCase                TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
-  status                  String // PASS, FAIL, RUNNING, CANCELLED
-  result                  String? // JSON string of result details
+  status                  String // PASS, FAIL, RUNNING, CANCELLED, QUEUED
+  result                  String? // JSON string of result details (final result)
+  logs                    String? // JSON string of execution logs
   error                   String?
   configurationSnapshot   String? // JSON string of test configuration snapshot at run time
+  startedAt               DateTime?
+  completedAt             DateTime?
   createdAt               DateTime @default(now())
 }

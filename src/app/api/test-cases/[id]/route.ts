@@ -9,19 +9,13 @@ export async function GET(
         const { id } = await params;
         const testCase = await prisma.testCase.findUnique({
             where: { id },
-            select: {
-                id: true,
-                name: true,
-                url: true,
-                prompt: true,
-                steps: true,
-                browserConfig: true,
-                username: true,
-                password: true,
-                projectId: true,
-                createdAt: true,
-                updatedAt: true,
-            },
+            include: {
+                testRuns: {
+                    take: 1,
+                    orderBy: { createdAt: 'desc' },
+                    select: { id: true, status: true, createdAt: true }
+                }
+            }
         });
 
         if (!testCase) {

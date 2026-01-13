@@ -18,6 +18,7 @@ interface TestRun {
     result: string;
     error: string | null;
     configurationSnapshot: string | null;
+    files?: Array<{ id: string; filename: string; storedName: string; mimeType: string; size: number; createdAt: string; absPath?: string }>;
 }
 
 interface TestCase {
@@ -97,10 +98,11 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
                 const run = await response.json();
                 setTestRun(run);
             } else {
-                const historyResponse = await fetch(`/api/test-cases/${id}/history`, { headers });
+                const historyResponse = await fetch(`/api/test-cases/${id}/history?limit=100`, { headers });
                 if (historyResponse.ok) {
-                    const data = await historyResponse.json();
-                    const run = data.find((r: TestRun) => r.id === runId);
+                    const result = await historyResponse.json();
+                    const runs = result.data || result;
+                    const run = runs.find((r: TestRun) => r.id === runId);
                     if (run) setTestRun(run);
                 }
             }
@@ -178,6 +180,8 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
                                 initialData={testData}
                                 showNameInput={false}
                                 readOnly={true}
+                                testCaseId={id}
+                                files={testRun?.files}
                                 onExport={testData ? () => {
                                     const markdown = exportToMarkdown(testData);
                                     const blob = new Blob([markdown], { type: 'text/markdown' });
@@ -195,7 +199,17 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
                     </div>
 
                     <div className="h-full min-h-[500px]">
-                        <ResultViewer result={{ status: testRun.status, events, error: testRun.error || undefined }} />
+                        <ResultViewer
+                            result={{ status: testRun.status, events, error: testRun.error || undefined }}
+                            meta={{
+                                runId,
+                                testCaseId: id,
+                                projectId,
+                                projectName,
+                                testCaseName: testCase?.name || null,
+                                config: testData,
+                            }}
+                        />
                     </div>
                 </div>
             </div>

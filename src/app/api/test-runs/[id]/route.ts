@@ -4,6 +4,8 @@ import { queue } from '@/lib/queue';
 import { TestRun } from '@/types';
 import { verifyAuth } from '@/lib/auth';
 
+import { getFilePath } from '@/lib/file-security';
+
 export async function GET(
     request: Request,
     { params }: { params: Promise<{ id: string }> }
@@ -18,13 +20,43 @@ export async function GET(
 
         const testRun = await prisma.testRun.findUnique({
             where: { id },
+            include: {
+                files: true,
+                testCase: {
+                    select: {
+                        id: true,
+                        project: { select: { userId: true } }
+                    }
+                }
+            }
         });
 
         if (!testRun) {
             return NextResponse.json({ error: 'Test run not found' }, { status: 404 });
         }
 
-        return NextResponse.json(testRun);
+        if (testRun.testCase.project.userId !== authPayload.userId) {
+            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
+
+        const files = (testRun.files || []).map(f => ({
+            ...f,
+            absPath: getFilePath(testRun.testCaseId, f.storedName)
+        }));
+
+        return NextResponse.json({
+            id: testRun.id,
+            status: testRun.status,
+            result: testRun.result,
+            logs: testRun.logs,
+            error: testRun.error,
+            configurationSnapshot: testRun.configurationSnapshot,
+            startedAt: testRun.startedAt,
+            completedAt: testRun.completedAt,
+            createdAt: testRun.createdAt,
+            testCaseId: testRun.testCaseId,
+            files
+        });
     } catch (error) {
         console.error('Failed to fetch test run:', error);
         return NextResponse.json({ error: 'Failed to fetch test run' }, { status: 500 });
@@ -42,6 +74,23 @@ export async function DELETE(
 
     try {
         const { id } = await params;
+
+        const testRun = await prisma.testRun.findUnique({
+            where: { id },
+            include: {
+                testCase: {
+                    include: { project: { select: { userId: true } } }
+                }
+            }
+        });
+
+        if (!testRun) {
+            return NextResponse.json({ error: 'Test run not found' }, { status: 404 });
+        }
+
+        if (testRun.testCase.project.userId !== authPayload.userId) {
+            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
 
         try {
             queue.cancel(id);

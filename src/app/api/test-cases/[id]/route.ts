@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyAuth } from '@/lib/auth';
 import { TestStep } from '@/types';
+import { getUploadPath } from '@/lib/file-security';
+import fs from 'fs/promises';
 
 function cleanStepsForStorage(steps: TestStep[]): TestStep[] {
     return steps.map(({ aiAction, codeAction, ...step }) => step);
@@ -25,6 +27,9 @@ export async function GET(
                     take: 1,
                     orderBy: { createdAt: 'desc' },
                     select: { id: true, status: true, createdAt: true }
+                },
+                files: {
+                    orderBy: { createdAt: 'desc' }
                 }
             }
         });
@@ -96,9 +101,17 @@ export async function DELETE(
 
     try {
         const { id } = await params;
+
         await prisma.testCase.delete({
             where: { id },
         });
+
+        const uploadPath = getUploadPath(id);
+        try {
+            await fs.rm(uploadPath, { recursive: true, force: true });
+        } catch {
+            console.warn(`Failed to delete upload directory: ${uploadPath}`);
+        }
 
         return NextResponse.json({ success: true });
     } catch (error) {

@@ -64,3 +64,83 @@ src/
 - `npm run dev` - Start dev server
 - `npx prisma studio` - Open DB GUI
 - `npx prisma db push` - Push schema changes
+
+## Common Patterns (Copy-Paste Ready)
+
+### Adding a New API Endpoint
+```typescript
+// src/app/api/[resource]/route.ts
+import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
+import { verifyAuth } from '@/lib/auth';
+
+export async function GET(request: Request) {
+    const authPayload = await verifyAuth(request);
+    if (!authPayload) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    try {
+        // 1. Fetch data with ownership check
+        const data = await prisma.project.findMany({
+            where: { userId: authPayload.userId }
+        });
+
+        return NextResponse.json(data);
+    } catch (error) {
+        console.error('Failed to fetch:', error);
+        return NextResponse.json({ error: 'Failed to fetch' }, { status: 500 });
+    }
+}
+```
+
+### Ownership Check Pattern (for nested resources)
+```typescript
+// Verify user owns the resource through the chain: testRun -> testCase -> project -> user
+const testRun = await prisma.testRun.findUnique({
+    where: { id },
+    include: {
+        testCase: {
+            include: { project: { select: { userId: true } } }
+        }
+    }
+});
+
+if (!testRun) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+}
+
+if (testRun.testCase.project.userId !== authPayload.userId) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+}
+```
+
+### Adding Pagination
+```typescript
+const url = new URL(request.url);
+const page = Math.max(1, parseInt(url.searchParams.get('page') || '1'));
+const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '20')));
+const skip = (page - 1) * limit;
+
+const [data, total] = await Promise.all([
+    prisma.testRun.findMany({ where, orderBy, skip, take: limit }),
+    prisma.testRun.count({ where })
+]);
+
+return NextResponse.json({
+    data,
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+});
+```
+
+### Adding a Database Field
+1. Update `prisma/schema.prisma`
+2. Run `npx prisma db push`
+3. Update types in `src/types/` if needed
+4. Re-export from `src/types/index.ts`
+
+## Security Checklist
+- [ ] `verifyAuth(request)` called at route start
+- [ ] Ownership verified: `resource.project.userId === authPayload.userId`
+- [ ] Input validated before database operations
+- [ ] Sensitive fields not exposed in responses

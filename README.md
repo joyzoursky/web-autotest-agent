@@ -7,7 +7,10 @@ AI-powered web testing. Write test scenarios in plain English and watch the AI e
 - Natural language test descriptions
 - Real-time execution with live logs
 - Multi-browser parallel execution
+- Custom Playwright code steps
+- File upload for test inputs
 - Project and test case management
+- Import/export test cases
 - User-provided API keys (BYOK)
 
 ## Tech Stack
@@ -43,8 +46,14 @@ Users provide their own [OpenRouter](https://openrouter.ai/) API keys via the ap
 ## Troubleshooting
 
 - **Browsers not found**: `npx playwright install`
-- **Database errors**: `rm -f dev.db && npx prisma db push`
+- **Database errors**: `rm -f prisma/dev.db && npx prisma db push`
 - **View database**: `npx prisma studio`
+- **Auth redirect issues**: Check Authgear redirect URI matches your domain
+
+## For AI Agents
+
+- `CLAUDE.md` - Guidelines for Claude Code
+- `AGENTS.md` - Guidelines for Codex
 
 ## License
 

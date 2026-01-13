@@ -17,6 +17,9 @@ pnpm-lock.yaml
 # Midscene test outputs
 midscene_run/
 
+# Uploaded test files
+uploads/
+
 # Generated/build files
 tsconfig.tsbuildinfo
 *.generated.ts

@@ -57,7 +57,7 @@ export default function SortableStepItem({ step, index, browsers, onRemove, onCh
         transition,
         zIndex: isDragging ? 10 : 1,
         opacity: isDragging ? 0.5 : 1,
-    };
+    } as React.CSSProperties;
 
     const hideMonacoEditor = isAnyDragging && stepType === 'playwright-code';
 
@@ -170,21 +170,24 @@ export default function SortableStepItem({ step, index, browsers, onRemove, onCh
                 </label>
 
                 {stepType === 'ai-action' ? (
-                    <textarea
-                        value={step.action}
-                        onChange={(e) => {
-                            onChange('action', e.target.value);
-                            e.target.style.height = 'auto';
-                            e.target.style.height = e.target.scrollHeight + 'px';
-                        }}
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onKeyDown={(e) => e.stopPropagation()}
-                        placeholder="Describe the action to perform..."
-                        className="w-full text-sm border-gray-200 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 min-h-[80px] py-3 px-3 resize-none bg-gray-50 focus:bg-white transition-colors disabled:bg-gray-100 disabled:text-gray-600"
-                        required={mode === 'builder'}
-                        rows={3}
-                        disabled={readOnly}
-                    />
+                    <div className="space-y-3">
+                        <textarea
+                            value={step.action}
+                            onChange={(e) => {
+                                onChange('action', e.target.value);
+                                e.target.style.height = 'auto';
+                                e.target.style.height = e.target.scrollHeight + 'px';
+                            }}
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => e.stopPropagation()}
+                            placeholder="Describe the action to perform..."
+                            className="w-full text-sm border-gray-200 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 min-h-[80px] py-3 px-3 resize-none bg-gray-50 focus:bg-white transition-colors disabled:bg-gray-100 disabled:text-gray-600"
+                            required={mode === 'builder'}
+                            rows={3}
+                            disabled={readOnly}
+                        />
+                        {/* File attachments UI removed. Use Playwright code with absolute file paths instead. */}
+                    </div>
                 ) : hideMonacoEditor ? (
                     <div className="h-[180px] bg-gray-50 border border-gray-200 rounded-lg flex items-center justify-center text-gray-400 text-sm">
                         <code className="text-xs text-gray-500 truncate max-w-full px-4">{step.action || 'Code editor'}</code>

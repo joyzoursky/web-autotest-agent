@@ -54,7 +54,6 @@ export default function SimpleForm({
                     <input
                         type="text"
                         className="input-field"
-                        placeholder="username"
                         value={username}
                         onChange={(e) => setUsername(e.target.value)}
                         disabled={readOnly}
@@ -68,7 +67,6 @@ export default function SimpleForm({
                         <input
                             type={showPassword ? 'text' : 'password'}
                             className={`input-field pr-10 ${!showPassword ? 'text-security-disc' : ''}`}
-                            placeholder="password"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             autoComplete="off"

@@ -2,19 +2,32 @@
 
 import Image from 'next/image';
 import { useEffect, useRef, useState } from 'react';
-import { TestRun, TestEvent } from '@/types';
+import { TestRun, TestEvent, TestCaseFile, TestData } from '@/types';
+import { formatTime } from '@/utils/dateFormatter';
 import TimelineEvent from './result-viewer/TimelineEvent';
 import ResultStatus from './result-viewer/ResultStatus';
 
-interface ResultViewerProps {
-    result: Omit<TestRun, 'id' | 'testCaseId' | 'createdAt'> & { events: TestEvent[] };
+interface ResultViewerMeta {
+    runId?: string | null;
+    testCaseId?: string | null;
+    projectId?: string | null;
+    projectName?: string | null;
+    testCaseName?: string | null;
+    config?: TestData;
+    files?: TestCaseFile[];
 }
 
-export default function ResultViewer({ result }: ResultViewerProps) {
+interface ResultViewerProps {
+    result: Omit<TestRun, 'id' | 'testCaseId' | 'createdAt'> & { events: TestEvent[] };
+    meta?: ResultViewerMeta;
+}
+
+export default function ResultViewer({ result, meta }: ResultViewerProps) {
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const [autoScroll, setAutoScroll] = useState(true);
     const [lightboxImage, setLightboxImage] = useState<{ src: string; label: string } | null>(null);
+    const [copied, setCopied] = useState(false);
 
     const events = result.events;
 
@@ -46,6 +59,68 @@ export default function ResultViewer({ result }: ResultViewerProps) {
                 top: scrollContainerRef.current.scrollHeight,
                 behavior: 'smooth'
             });
+        }
+    };
+
+    const buildLogsText = (): string => {
+        const lines: string[] = [];
+        lines.push(`# SkyTest Agent Run Report`);
+        lines.push(`Generated: ${new Date().toISOString()}`);
+        if (typeof window !== 'undefined') {
+            lines.push(`Location: ${window.location.href}`);
+            lines.push(`User-Agent: ${navigator.userAgent}`);
+        }
+        lines.push('');
+        lines.push('## Metadata');
+        if (meta?.runId) lines.push(`Run ID: ${meta.runId}`);
+        if (meta?.testCaseId) lines.push(`Test Case ID: ${meta.testCaseId}`);
+        if (meta?.testCaseName) lines.push(`Test Case Name: ${meta.testCaseName}`);
+        if (meta?.projectId) lines.push(`Project ID: ${meta.projectId}`);
+        if (meta?.projectName) lines.push(`Project Name: ${meta.projectName}`);
+        lines.push(`Status: ${result.status}`);
+        if (result.error) lines.push(`Error: ${result.error}`);
+        lines.push(`Events: ${events.length}`);
+        lines.push('');
+        if (meta?.config) {
+            lines.push('## Configuration');
+            try {
+                lines.push('```json');
+                lines.push(JSON.stringify(meta.config, null, 2));
+                lines.push('```');
+            } catch {
+                // ignore
+            }
+            lines.push('');
+        }
+        if (meta?.files && meta.files.length > 0) {
+            lines.push('## Files');
+            for (const f of meta.files) {
+                lines.push(`- ${f.filename} (id: ${f.id}, stored: ${f.storedName}, type: ${f.mimeType}, size: ${f.size})`);
+            }
+            lines.push('');
+        }
+        lines.push('## Events');
+        for (const ev of events) {
+            const t = formatTime(ev.timestamp);
+            if (ev.type === 'log' && 'message' in ev.data) {
+                const level = ev.data.level?.toUpperCase() || 'INFO';
+                const prefix = ev.browserId ? `[${t}] [${level}] [${ev.browserId}]` : `[${t}] [${level}]`;
+                lines.push(`${prefix} ${ev.data.message}`);
+            } else if (ev.type === 'screenshot' && 'label' in ev.data) {
+                const prefix = ev.browserId ? `[${t}] [SCREENSHOT] [${ev.browserId}]` : `[${t}] [SCREENSHOT]`;
+                lines.push(`${prefix} ${ev.data.label}`);
+            }
+        }
+        return lines.join('\n');
+    };
+
+    const handleCopyLogs = async () => {
+        try {
+            await navigator.clipboard.writeText(buildLogsText());
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1200);
+        } catch {
+            // ignore
         }
     };
 
@@ -109,10 +184,23 @@ export default function ResultViewer({ result }: ResultViewerProps) {
                             </div>
                         )}
                     </div>
-                    <div className="px-2.5 py-1 bg-gray-100 border border-gray-200 rounded-md">
-                        <span className="text-xs text-muted-foreground font-medium">
-                            {result.events.length} events
-                        </span>
+                    <div className="flex items-center gap-2">
+                        <button
+                            onClick={handleCopyLogs}
+                            type="button"
+                            className="h-8 px-2.5 py-0 bg-gray-100 border border-gray-200 rounded-md text-xs font-medium text-muted-foreground relative inline-flex items-center justify-center"
+                            title="Copy logs"
+                        >
+                            <span className="invisible inline-block leading-none">Copy Logs</span>
+                            <span className="absolute inset-0 flex items-center justify-center leading-none">
+                                {copied ? 'Copied!' : 'Copy Logs'}
+                            </span>
+                        </button>
+                        <div className="h-8 px-2.5 py-0 bg-gray-100 border border-gray-200 rounded-md inline-flex items-center">
+                            <span className="text-xs text-muted-foreground font-medium">
+                                {result.events.length} events
+                            </span>
+                        </div>
                     </div>
                 </div>
 

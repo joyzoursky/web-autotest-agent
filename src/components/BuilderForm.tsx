@@ -1,6 +1,6 @@
 'use client';
 
-import { TestStep, BrowserConfig, StepType } from '@/types';
+import { TestStep, BrowserConfig, StepType, TestCaseFile } from '@/types';
 import {
     DndContext,
     closestCenter,
@@ -18,9 +18,12 @@ import {
     sortableKeyboardCoordinates,
     verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import BrowserConfigCard from './BrowserConfigCard';
 import SortableStepItem from './SortableStepItem';
+import FileUploadZone, { FileUploadZoneHandle } from './FileUploadZone';
+import { config } from '@/config/app';
+import FileList from './FileList';
 
 interface BrowserEntry {
     id: string;
@@ -35,6 +38,10 @@ interface BuilderFormProps {
     showPasswordMap: Record<string, boolean>;
     setShowPasswordMap: (map: Record<string, boolean>) => void;
     readOnly?: boolean;
+    testCaseId?: string;
+    files?: TestCaseFile[];
+    onFilesChange?: () => void;
+    onEnsureTestCase?: () => Promise<string>;
 }
 
 export default function BuilderForm({
@@ -44,9 +51,14 @@ export default function BuilderForm({
     setSteps,
     showPasswordMap,
     setShowPasswordMap,
-    readOnly
+    readOnly,
+    testCaseId,
+    files,
+    onFilesChange,
+    onEnsureTestCase
 }: BuilderFormProps) {
     const [activeId, setActiveId] = useState<string | null>(null);
+    const uploadRef = useRef<FileUploadZoneHandle>(null);
 
     const sensors = useSensors(
         useSensor(PointerSensor),
@@ -163,7 +175,6 @@ export default function BuilderForm({
             const newIndex = steps.findIndex((item) => item.id === over.id);
             setSteps(arrayMove(steps, oldIndex, newIndex));
         }
-        // Delay clearing activeId to let React finish re-rendering after reorder
         requestAnimationFrame(() => {
             setActiveId(null);
         });
@@ -206,6 +217,61 @@ export default function BuilderForm({
                         Add Another Browser
                     </button>
                 )}
+            </div>
+
+            <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                        <label className="block text-sm font-medium text-foreground">Test Files</label>
+                    </div>
+                    {!readOnly && onFilesChange && (
+                        <button
+                            type="button"
+                            className="text-sm font-medium text-gray-500 hover:text-gray-700 px-1 py-0.5"
+                            title="Add files"
+                            onClick={() => uploadRef.current?.open()}
+                        >
+                            + Upload
+                        </button>
+                    )}
+                </div>
+
+                {!readOnly && onFilesChange && (
+                    <FileUploadZone
+                        ref={uploadRef}
+                        testCaseId={testCaseId}
+                        onUploadComplete={onFilesChange}
+                        disabled={readOnly}
+                        ensureTestCase={onEnsureTestCase}
+                        compact
+                    />
+                )}
+
+                {!readOnly && (!files || files.length === 0) && (
+                    <div className="text-xs text-gray-500 space-y-1.5">
+                        <p>Upload files and Copy the path to use in [Code] mode:</p>
+                        <code className="block bg-gray-100 px-2 py-1.5 rounded text-[11px] font-mono text-gray-600">
+                            await page.setInputFiles(&apos;input[type=file]&apos;, &apos;/path/to/file.pdf&apos;);
+                        </code>
+                        <p className="text-gray-400">
+                            Max {Math.floor(config.files.maxFileSize / 1024 / 1024)}MB per file. Supports PDF, images, Office docs, CSV, JSON, XML, and more.
+                        </p>
+                    </div>
+                )}
+
+                <div className="overflow-x-hidden">
+                    {files && files.length > 0 && testCaseId && (
+                        <FileList
+                            files={files}
+                            testCaseId={testCaseId}
+                            onDelete={() => { onFilesChange && onFilesChange(); }}
+                            readOnly={readOnly}
+                        />
+                    )}
+                    {(!files || files.length === 0) && readOnly && (
+                        <p className="text-sm text-gray-400 italic">No files uploaded</p>
+                    )}
+                </div>
             </div>
 
             <div className="space-y-4">

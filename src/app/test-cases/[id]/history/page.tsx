@@ -76,10 +76,10 @@ export default function HistoryPage({ params }: { params: Promise<{ id: string }
         try {
             const token = await getAccessToken();
             const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
-            const response = await fetch(`/api/test-cases/${id}/history`, { headers });
+            const response = await fetch(`/api/test-cases/${id}/history?limit=100`, { headers });
             if (response.ok) {
-                const data = await response.json();
-                setTestRuns(data);
+                const result = await response.json();
+                setTestRuns(result.data || result);
             }
         } catch (error) {
             console.error("Failed to fetch history", error);

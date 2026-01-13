@@ -72,3 +72,6 @@ dev.db
 
 # AI Tools
 .claude
+
+# Uploaded test files
+/uploads/

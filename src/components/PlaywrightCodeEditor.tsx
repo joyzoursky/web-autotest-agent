@@ -154,6 +154,7 @@ export default function PlaywrightCodeEditor({
                     automaticLayout: true,
                     tabSize: 2,
                     readOnly: readOnly,
+                    readOnlyMessage: { value: '' },
                     wordWrap: 'off',
                     padding: { top: 8, bottom: 8 },
                     scrollbar: {

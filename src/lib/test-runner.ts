@@ -1,8 +1,9 @@
 import { chromium, Page, BrowserContext, Browser } from 'playwright';
 import { PlaywrightAgent } from '@midscene/web/playwright';
-import { TestStep, BrowserConfig, TestEvent, TestResult, RunTestOptions } from '@/types';
+import { TestStep, BrowserConfig, TestEvent, TestResult, RunTestOptions, TestCaseFile } from '@/types';
 import { config } from '@/config/app';
 import { ConfigurationError, BrowserError, TestExecutionError, PlaywrightCodeError, getErrorMessage } from './errors';
+import { getFilePath } from './file-security';
 
 export const maxDuration = config.test.maxDuration;
 
@@ -264,12 +265,32 @@ async function executePlaywrightCode(
     }
 }
 
+function resolveFilePaths(
+    step: TestStep,
+    testCaseId: string | undefined,
+    files: TestCaseFile[] | undefined
+): string[] {
+    if (!step.files || step.files.length === 0 || !testCaseId || !files) {
+        return [];
+    }
+
+    return step.files
+        .map(fileId => {
+            const file = files.find(f => f.id === fileId);
+            if (!file) return null;
+            return getFilePath(testCaseId, file.storedName);
+        })
+        .filter((p): p is string => p !== null);
+}
+
 async function executeSteps(
     steps: TestStep[],
     browserInstances: BrowserInstances,
     targetConfigs: Record<string, BrowserConfig>,
     onEvent: EventHandler,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    testCaseId?: string,
+    files?: TestCaseFile[]
 ): Promise<void> {
     const log = createLogger(onEvent);
     const { pages, agents } = browserInstances;
@@ -287,34 +308,40 @@ async function executeSteps(
         const browserConfig = targetConfigs[effectiveTargetId];
         const niceName = getBrowserNiceName(effectiveTargetId);
 
-        if (!page) {
-            throw new TestExecutionError(
-                `Browser instance '${effectiveTargetId}' not found for step: ${step.action}`,
-                '',
-                step.action
-            );
-        }
-
-        if (stepType === 'playwright-code') {
-            await executePlaywrightCode(step.action, page, i, log, onEvent, effectiveTargetId);
-        } else {
-            if (!agent) {
+        try {
+            if (!page) {
                 throw new TestExecutionError(
-                    `Browser agent '${effectiveTargetId}' not found for AI step: ${step.action}`,
+                    `Browser instance '${effectiveTargetId}' not found for step: ${step.action}`,
                     '',
                     step.action
                 );
             }
 
-            log(`[Step ${i + 1}] Executing AI action on ${niceName}: ${step.action}`, 'info', effectiveTargetId);
+            if (stepType === 'playwright-code') {
+                await executePlaywrightCode(step.action, page, i, log, onEvent, effectiveTargetId);
+            } else {
+                if (!agent) {
+                    throw new TestExecutionError(
+                        `Browser agent '${effectiveTargetId}' not found for AI step: ${step.action}`,
+                        '',
+                        step.action
+                    );
+                }
 
-            let stepAction = step.action;
-            if (browserConfig && (browserConfig.username || browserConfig.password)) {
-                stepAction += `\n(Credentials: ${browserConfig.username} / ${browserConfig.password})`;
+                log(`[Step ${i + 1}] Executing AI action on ${niceName}: ${step.action}`, 'info', effectiveTargetId);
+
+                let stepAction = step.action;
+                if (browserConfig && (browserConfig.username || browserConfig.password)) {
+                    stepAction += `\n(Credentials: ${browserConfig.username} / ${browserConfig.password})`;
+                }
+
+                await agent.aiAct(stepAction);
+                await captureScreenshot(page, `[${niceName}] Step ${i + 1} Complete`, onEvent, log, effectiveTargetId);
             }
-
-            await agent.aiAct(stepAction);
-            await captureScreenshot(page, `[${niceName}] Step ${i + 1} Complete`, onEvent, log, effectiveTargetId);
+        } catch (e) {
+            const msg = getErrorMessage(e);
+            log(`[Step ${i + 1}] Error: ${msg}`, 'error', effectiveTargetId);
+            throw e;
         }
     }
 }
@@ -387,7 +414,7 @@ async function cleanup(browser: Browser): Promise<void> {
 
 export async function runTest(options: RunTestOptions): Promise<TestResult> {
     const { config: testConfig, onEvent, signal, runId, onCleanup } = options;
-    const { url, username, password, prompt, steps, browserConfig, openRouterApiKey } = testConfig;
+    const { url, username, password, prompt, steps, browserConfig, openRouterApiKey, testCaseId, files } = testConfig;
     const log = createLogger(onEvent);
 
     if (!openRouterApiKey) {
@@ -420,7 +447,7 @@ export async function runTest(options: RunTestOptions): Promise<TestResult> {
         if (signal?.aborted) throw new Error('Aborted');
 
         if (hasSteps) {
-            await executeSteps(steps!, browserInstances, targetConfigs, onEvent, signal);
+            await executeSteps(steps!, browserInstances, targetConfigs, onEvent, signal, testCaseId, files);
         } else {
             await executePrompt(prompt, browserInstances, targetConfigs);
         }

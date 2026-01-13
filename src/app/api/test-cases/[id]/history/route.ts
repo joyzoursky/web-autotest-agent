@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyAuth } from '@/lib/auth';
+import { getFilePath } from '@/lib/file-security';
 
 export async function GET(
     request: Request,
@@ -13,12 +14,47 @@ export async function GET(
 
     try {
         const { id } = await params;
-        const testRuns = await prisma.testRun.findMany({
-            where: { testCaseId: id },
-            orderBy: { createdAt: 'desc' },
+        const url = new URL(request.url);
+        const page = Math.max(1, parseInt(url.searchParams.get('page') || '1'));
+        const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '20')));
+        const skip = (page - 1) * limit;
+
+        const testCase = await prisma.testCase.findUnique({
+            where: { id },
+            include: { project: { select: { userId: true } } }
         });
 
-        return NextResponse.json(testRuns);
+        if (!testCase) {
+            return NextResponse.json({ error: 'Test case not found' }, { status: 404 });
+        }
+
+        if (testCase.project.userId !== authPayload.userId) {
+            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
+
+        const [testRuns, total] = await Promise.all([
+            prisma.testRun.findMany({
+                where: { testCaseId: id },
+                orderBy: { createdAt: 'desc' },
+                include: { files: true },
+                skip,
+                take: limit
+            }),
+            prisma.testRun.count({ where: { testCaseId: id } })
+        ]);
+
+        const runsWithFiles = testRuns.map(run => ({
+            ...run,
+            files: (run.files || []).map(f => ({
+                ...f,
+                absPath: getFilePath(run.testCaseId, f.storedName)
+            }))
+        }));
+
+        return NextResponse.json({
+            data: runsWithFiles,
+            pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+        });
     } catch (error) {
         console.error('Failed to fetch test history:', error);
         return NextResponse.json({ error: 'Failed to fetch test history' }, { status: 500 });

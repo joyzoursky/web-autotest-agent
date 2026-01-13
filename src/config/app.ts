@@ -61,6 +61,36 @@ export const config = {
             'bg-yellow-500',
         ],
     },
+
+    files: {
+        uploadDir: './uploads',
+        maxFileSize: 10 * 1024 * 1024,
+        maxFilesPerTestCase: 20,
+        allowedMimeTypes: [
+            'application/pdf',
+            'text/plain',
+            'text/csv',
+            'application/json',
+            'application/xml',
+            'image/jpeg',
+            'image/png',
+            'image/gif',
+            'image/webp',
+            'application/zip',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-powerpoint',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        ] as string[],
+        allowedExtensions: [
+            '.pdf', '.txt', '.csv', '.json', '.xml',
+            '.jpg', '.jpeg', '.png', '.gif', '.webp',
+            '.zip',
+            '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+        ] as string[],
+    },
 } as const;
 
 export type Config = typeof config;

@@ -7,7 +7,7 @@ import { useAuth } from "../auth-provider";
 import TestForm from "@/components/TestForm";
 import ResultViewer from "@/components/ResultViewer";
 import Breadcrumbs from "@/components/Breadcrumbs";
-import { TestStep, BrowserConfig, TestEvent } from "@/types";
+import { TestStep, BrowserConfig, TestEvent, TestCaseFile } from "@/types";
 import { exportToMarkdown, parseMarkdown } from "@/utils/testCaseMarkdown";
 
 interface TestData {
@@ -52,6 +52,7 @@ function RunPageContent() {
 
     const [activeRunId, setActiveRunId] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [testCaseFiles, setTestCaseFiles] = useState<TestCaseFile[]>([]);
 
     const handleExport = () => {
         if (!initialData) return;
@@ -119,6 +120,7 @@ function RunPageContent() {
     useEffect(() => {
         if (testCaseId) {
             fetchTestCase(testCaseId);
+            refreshFiles();
         } else if (testCaseName) {
             setInitialData({ name: testCaseName, url: '', prompt: '' });
         }
@@ -149,6 +151,10 @@ function RunPageContent() {
                 setOriginalMode(mode);
                 setProjectIdFromTestCase(data.projectId);
                 fetchProjectName(data.projectId);
+
+                if (data.files) {
+                    setTestCaseFiles(data.files);
+                }
 
                 if (data.testRuns && data.testRuns.length > 0) {
                     const latestRun = data.testRuns[0];
@@ -201,6 +207,22 @@ function RunPageContent() {
             }
         } catch (error) {
             console.error("Failed to fetch project name", error);
+        }
+    };
+
+    const refreshFiles = async () => {
+        const id = testCaseId || currentTestCaseId;
+        if (!id) return;
+        try {
+            const token = await getAccessToken();
+            const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
+            const response = await fetch(`/api/test-cases/${id}/files`, { headers });
+            if (response.ok) {
+                const files = await response.json();
+                setTestCaseFiles(files);
+            }
+        } catch (error) {
+            console.error("Failed to fetch files", error);
         }
     };
 
@@ -260,22 +282,25 @@ function RunPageContent() {
     };
 
     const handleStopTest = async () => {
-        if (currentRunId) {
-            setIsLoading(true);
-            try {
-                const response = await fetch(`/api/test-runs/${currentRunId}/cancel`, {
-                    method: 'POST'
-                });
-                if (!response.ok) throw new Error('Failed to stop test');
-
-                setResult(prev => ({ ...prev, status: 'CANCELLED', error: 'Test stopped by user' }));
-                setActiveRunId(null);
-            } catch (error) {
-                console.error('Failed to stop test', error);
-                alert('Failed to stop test');
-            } finally {
-                setIsLoading(false);
+        if (!currentRunId) return;
+        setIsLoading(true);
+        try {
+            if (eventSource) {
+                eventSource.close();
+                setEventSource(null);
             }
+            const token = await getAccessToken();
+            const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
+            const resp = await fetch(`/api/test-runs/${currentRunId}/cancel`, { method: 'POST', headers });
+            if (!resp.ok) throw new Error('Failed to stop test');
+            setResult(prev => ({ ...prev, status: 'CANCELLED', error: 'Test stopped by user' }));
+            setActiveRunId(null);
+            setCurrentRunId(null);
+        } catch (error) {
+            console.error('Failed to stop test', error);
+            alert('Failed to stop test');
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -370,6 +395,62 @@ function RunPageContent() {
         }
     };
 
+    const ensureTestCaseFromData = async (data: TestData): Promise<string> => {
+        if (testCaseId) return testCaseId;
+        if (currentTestCaseId) return currentTestCaseId;
+
+        const effectiveProjectId = projectId || projectIdFromTestCase;
+        if (!effectiveProjectId) {
+            alert('Please select a project before uploading files.');
+            throw new Error('No project selected');
+        }
+
+        try {
+            const token = await getAccessToken();
+            const headers: HeadersInit = {
+                'Content-Type': 'application/json',
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+            };
+
+            const payload: TestData = {
+                ...data,
+                name: (data.name && data.name.trim() !== '') ? data.name : 'Untitled',
+            };
+            if (!payload.url || payload.url.trim() === '') {
+                payload.url = 'about:blank';
+            }
+            const payloadHasSteps = Array.isArray(payload.steps) && payload.steps.length > 0;
+            if (!payload.prompt && !payloadHasSteps) {
+                payload.prompt = 'Draft';
+            }
+
+            const response = await fetch(`/api/projects/${effectiveProjectId}/test-cases`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(payload),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || 'Failed to create test case');
+            }
+
+            const newTestCase = await response.json();
+            setCurrentTestCaseId(newTestCase.id);
+            window.history.replaceState(null, "", `?testCaseId=${newTestCase.id}&projectId=${effectiveProjectId}`);
+            setOriginalName(payload.name || null);
+            const payloadHasBrowserConfig = payload.browserConfig && Object.keys(payload.browserConfig).length > 0;
+            setOriginalMode((payloadHasSteps || payloadHasBrowserConfig) ? 'builder' : 'simple');
+
+            await refreshFiles();
+            return newTestCase.id as string;
+        } catch (error) {
+            console.error('Failed to create test case for upload', error);
+            alert('Failed to create test case for file uploads. Please ensure required fields are filled (URL and a prompt or steps).');
+            throw error;
+        }
+    };
+
     if (isAuthLoading) return null;
 
     return (
@@ -434,11 +515,26 @@ function RunPageContent() {
                             readOnly={!!activeRunId}
                             onExport={initialData ? handleExport : undefined}
                             onImport={() => fileInputRef.current?.click()}
+                            testCaseId={testCaseId || currentTestCaseId || undefined}
+                            files={testCaseFiles}
+                            onFilesChange={refreshFiles}
+                            onEnsureTestCase={ensureTestCaseFromData}
                         />
                     )}
                 </div>
                 <div className="h-full">
-                    <ResultViewer result={result} />
+                    <ResultViewer
+                        result={result}
+                        meta={{
+                            runId: currentRunId,
+                            testCaseId: testCaseId || currentTestCaseId,
+                            projectId: projectId || projectIdFromTestCase,
+                            projectName,
+                            testCaseName: initialData?.name || null,
+                            config: initialData,
+                            files: testCaseFiles,
+                        }}
+                    />
                 </div>
             </div>
         </>

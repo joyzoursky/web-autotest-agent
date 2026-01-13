@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { TestStep, BrowserConfig } from '@/types';
+import { TestStep, BrowserConfig, TestCaseFile } from '@/types';
 import SimpleForm from './SimpleForm';
 import BuilderForm from './BuilderForm';
 
@@ -23,6 +23,10 @@ interface TestFormProps {
     readOnly?: boolean;
     onExport?: () => void;
     onImport?: () => void;
+    testCaseId?: string;
+    files?: TestCaseFile[];
+    onFilesChange?: () => void;
+    onEnsureTestCase?: (data: TestData) => Promise<string>;
 }
 
 interface BrowserEntry {
@@ -30,7 +34,7 @@ interface BrowserEntry {
     config: BrowserConfig;
 }
 
-export default function TestForm({ onSubmit, isLoading, initialData, showNameInput, readOnly, onExport, onImport }: TestFormProps) {
+export default function TestForm({ onSubmit, isLoading, initialData, showNameInput, readOnly, onExport, onImport, testCaseId, files, onFilesChange, onEnsureTestCase }: TestFormProps) {
     const [name, setName] = useState(() => initialData?.name || '');
     const [prompt, setPrompt] = useState(() => initialData?.prompt || '');
 
@@ -108,6 +112,18 @@ export default function TestForm({ onSubmit, isLoading, initialData, showNameInp
         }
     }, [initialData]);
 
+    useEffect(() => {
+        if (mode === 'builder' && steps.length === 0) {
+            const newStep: TestStep = {
+                id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+                target: browsers[0]?.id || 'browser_a',
+                action: '',
+                type: 'ai-action',
+            };
+            setSteps([newStep]);
+        }
+    }, [mode]);
+
     const handleLoadSampleData = () => {
         if (mode === 'simple') {
             setName('Simple Login Test');
@@ -135,11 +151,8 @@ Verify that "Sauce Labs Backpack" is in the cart.`);
         }
     };
 
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-
+    const buildCurrentData = (): TestData => {
         let data: TestData;
-
         if (mode === 'simple') {
             data = {
                 name: showNameInput ? name : undefined,
@@ -166,7 +179,12 @@ Verify that "Sauce Labs Backpack" is in the cart.`);
                 browserConfig: browserConfigMap
             };
         }
+        return data;
+    };
 
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        const data = buildCurrentData();
         onSubmit(data);
     };
 
@@ -286,6 +304,16 @@ Verify that "Sauce Labs Backpack" is in the cart.`);
                         showPasswordMap={showPasswordMap}
                         setShowPasswordMap={setShowPasswordMap}
                         readOnly={readOnly}
+                        testCaseId={testCaseId}
+                        files={files}
+                        onFilesChange={onFilesChange}
+                        onEnsureTestCase={onEnsureTestCase ? async () => {
+                            const data = buildCurrentData();
+                            if (!data.name || data.name.trim() === '') {
+                                data.name = 'Untitled';
+                            }
+                            return onEnsureTestCase(data);
+                        } : undefined}
                     />
                 )}
             </div>

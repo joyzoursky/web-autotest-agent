@@ -1,4 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { prisma } from '@/lib/prisma';
 
 const AUTHGEAR_ENDPOINT = process.env.NEXT_PUBLIC_AUTHGEAR_ENDPOINT || '';
 const JWKS_URL = `${AUTHGEAR_ENDPOINT}/oauth2/jwks`;
@@ -21,6 +22,17 @@ export async function verifyAuth(request: Request, token?: string) {
 
     try {
         const { payload } = await jwtVerify(finalToken, JKWS);
+        try {
+            const authId = (payload.sub as string | undefined) || undefined;
+            if (authId) {
+                const user = await prisma.user.findUnique({ where: { authId } });
+                if (user) {
+                    return { ...payload, userId: user.id } as typeof payload & { userId: string };
+                }
+            }
+        } catch (e) {
+            console.warn('verifyAuth: failed to map auth sub to userId');
+        }
         return payload;
     } catch (error) {
         console.error("verifyAuth: Token verification failed", error);

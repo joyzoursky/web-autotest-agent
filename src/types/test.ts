@@ -8,6 +8,16 @@ export interface BrowserConfig {
 
 export type StepType = 'ai-action' | 'playwright-code';
 
+export interface TestCaseFile {
+    id: string;
+    filename: string;
+    storedName: string;
+    mimeType: string;
+    size: number;
+    createdAt: string;
+    absPath?: string;
+}
+
 export interface TestStep {
     id: string;
     target: string;
@@ -15,6 +25,7 @@ export interface TestStep {
     type?: StepType;
     aiAction?: string;
     codeAction?: string;
+    files?: string[];
 }
 
 export interface TestData {
@@ -25,6 +36,7 @@ export interface TestData {
     name?: string;
     steps?: TestStep[];
     browserConfig?: Record<string, BrowserConfig>;
+    files?: TestCaseFile[];
 }
 
 export interface RunTestOptions {
@@ -38,6 +50,8 @@ export interface RunTestOptions {
         browserConfig?: Record<string, BrowserConfig>;
         userId?: string;
         openRouterApiKey?: string;
+        testCaseId?: string;
+        files?: TestCaseFile[];
     };
     onEvent: (event: TestEvent) => void;
     signal?: AbortSignal;

@@ -28,6 +28,10 @@ export async function GET(
             return NextResponse.json({ error: 'Project not found' }, { status: 404 });
         }
 
+        if (project.userId !== authPayload.userId) {
+            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
+
         return NextResponse.json(project);
     } catch (error) {
         console.error('Failed to fetch project:', error);
@@ -47,6 +51,20 @@ export async function PUT(
 
     try {
         const { id } = await params;
+
+        const existingProject = await prisma.project.findUnique({
+            where: { id },
+            select: { userId: true }
+        });
+
+        if (!existingProject) {
+            return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+        }
+
+        if (existingProject.userId !== authPayload.userId) {
+            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
+
         const body = await request.json();
         const { name } = body;
 
@@ -77,6 +95,19 @@ export async function DELETE(
 
     try {
         const { id } = await params;
+
+        const existingProject = await prisma.project.findUnique({
+            where: { id },
+            select: { userId: true }
+        });
+
+        if (!existingProject) {
+            return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+        }
+
+        if (existingProject.userId !== authPayload.userId) {
+            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
 
         const activeRuns = await prisma.testRun.findFirst({
             where: {

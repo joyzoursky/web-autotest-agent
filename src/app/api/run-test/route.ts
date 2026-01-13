@@ -64,6 +64,11 @@ export async function POST(request: Request) {
             );
         }
 
+        const files = await prisma.testCaseFile.findMany({
+            where: { testCaseId },
+            select: { id: true, filename: true, storedName: true, mimeType: true, size: true }
+        });
+
         const testRun = await prisma.testRun.create({
             data: {
                 testCaseId,
@@ -72,7 +77,23 @@ export async function POST(request: Request) {
             }
         });
 
-        await queue.add(testRun.id, { ...config, userId, openRouterApiKey });
+        if (files && files.length > 0) {
+            try {
+                await prisma.testRunFile.createMany({
+                    data: files.map((f) => ({
+                        runId: testRun.id,
+                        filename: f.filename,
+                        storedName: f.storedName,
+                        mimeType: f.mimeType,
+                        size: f.size,
+                    }))
+                });
+            } catch (e) {
+                console.error('Failed to snapshot run files', e);
+            }
+        }
+
+        await queue.add(testRun.id, { ...config, userId, openRouterApiKey, testCaseId, files });
 
         return NextResponse.json({ runId: testRun.id });
 

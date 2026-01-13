@@ -39,6 +39,8 @@ model Project {
   testCases TestCase[]
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
+
+  @@index([userId, updatedAt(sort: Desc)])
 }
 
 model TestCase {
@@ -53,8 +55,25 @@ model TestCase {
   username  String?
   password  String?
   testRuns  TestRun[]
+  files     TestCaseFile[]
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+
+  @@index([projectId, updatedAt(sort: Desc)])
+}
+
+model TestCaseFile {
+  id          String   @id @default(cuid())
+  testCaseId  String
+  testCase    TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
+  filename    String
+  storedName  String
+  mimeType    String
+  size        Int
+  createdAt   DateTime @default(now())
+
+  @@unique([testCaseId, filename])
+  @@index([testCaseId])
 }
 
 model TestRun {
@@ -70,6 +89,21 @@ model TestRun {
   completedAt             DateTime?
   createdAt               DateTime @default(now())
   usageRecords            UsageRecord[]
+  files                   TestRunFile[]
 
   @@index([testCaseId, createdAt(sort: Desc)])
+  @@index([status])
+}
+
+model TestRunFile {
+  id         String   @id @default(cuid())
+  runId      String
+  testRun    TestRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  filename   String
+  storedName String
+  mimeType   String
+  size       Int
+  createdAt  DateTime @default(now())
+
+  @@index([runId])
 }

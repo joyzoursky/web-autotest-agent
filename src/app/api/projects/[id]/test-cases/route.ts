@@ -20,6 +20,13 @@ export async function GET(
 
     try {
         const { id } = await params;
+        const project = await prisma.project.findUnique({ where: { id }, select: { userId: true } });
+        if (!project) {
+            return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+        }
+        if (project.userId !== (authPayload as any).userId) {
+            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
         const testCases = await prisma.testCase.findMany({
             where: { projectId: id },
             orderBy: { updatedAt: 'desc' },
@@ -49,6 +56,13 @@ export async function POST(
 
     try {
         const { id } = await params;
+        const project = await prisma.project.findUnique({ where: { id }, select: { userId: true } });
+        if (!project) {
+            return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+        }
+        if (project.userId !== (authPayload as any).userId) {
+            return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+        }
         const body = await request.json();
         const { name, url, prompt, steps, browserConfig, username, password } = body;
 

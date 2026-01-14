@@ -2,7 +2,10 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyAuth } from '@/lib/auth';
 import { getFilePath } from '@/lib/file-security';
+import { createLogger } from '@/lib/logger';
 import fs from 'fs/promises';
+
+const logger = createLogger('api:test-cases:file');
 
 export async function GET(
     request: Request,
@@ -97,7 +100,7 @@ export async function GET(
             return NextResponse.json({ error: 'File not found on disk' }, { status: 404 });
         }
     } catch (error) {
-        console.error('Failed to download file:', error);
+        logger.error('Failed to download file', error);
         return NextResponse.json({ error: 'Failed to download file' }, { status: 500 });
     }
 }
@@ -136,7 +139,7 @@ export async function DELETE(
         try {
             await fs.unlink(filePath);
         } catch {
-            console.warn(`File not found on disk: ${filePath}`);
+            logger.warn('File not found on disk', { filePath });
         }
 
         await prisma.testCaseFile.delete({
@@ -145,7 +148,7 @@ export async function DELETE(
 
         return NextResponse.json({ success: true });
     } catch (error) {
-        console.error('Failed to delete file:', error);
+        logger.error('Failed to delete file', error);
         return NextResponse.json({ error: 'Failed to delete file' }, { status: 500 });
     }
 }

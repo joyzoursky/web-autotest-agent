@@ -2,9 +2,12 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyAuth } from '@/lib/auth';
 import { validateAndSanitizeFile, getUploadPath } from '@/lib/file-security';
+import { createLogger } from '@/lib/logger';
 import { config } from '@/config/app';
 import fs from 'fs/promises';
 import path from 'path';
+
+const logger = createLogger('api:test-cases:files');
 
 export async function GET(
     request: Request,
@@ -38,7 +41,7 @@ export async function GET(
 
         return NextResponse.json(dbFiles);
     } catch (error) {
-        console.error('Failed to fetch files:', error);
+        logger.error('Failed to fetch files', error);
         return NextResponse.json({ error: 'Failed to fetch files' }, { status: 500 });
     }
 }
@@ -120,7 +123,7 @@ export async function POST(
 
         return NextResponse.json(dbFile, { status: 201 });
     } catch (error) {
-        console.error('Failed to upload file:', error);
+        logger.error('Failed to upload file', error);
         return NextResponse.json({ error: 'Failed to upload file' }, { status: 500 });
     }
 }

@@ -4,6 +4,14 @@ export const config = {
         locale: 'en-GB',
     },
 
+    logging: {
+        // Server-side log level: 'debug' | 'info' | 'warn' | 'error'
+        // Override with LOG_LEVEL environment variable
+        defaultLevel: 'info',
+        // Enable Prisma query logging with PRISMA_LOG_QUERIES=true
+        // Note: "Midscene - report file updated" logs come from @midscene/web library
+    },
+
     api: {
         endpoints: {
             PROJECTS: '/api/projects',

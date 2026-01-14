@@ -4,7 +4,10 @@ import { prisma } from '@/lib/prisma';
 import { verifyAuth } from '@/lib/auth';
 import { decrypt } from '@/lib/crypto';
 import { validateTargetUrl } from '@/lib/url-security';
+import { createLogger } from '@/lib/logger';
 import type { BrowserConfig, TestStep } from '@/types';
+
+const logger = createLogger('api:run-test');
 
 export const dynamic = 'force-dynamic';
 
@@ -168,7 +171,7 @@ export async function POST(request: Request) {
                     }))
                 });
             } catch (e) {
-                console.error('Failed to snapshot run files', e);
+                logger.warn('Failed to snapshot run files', e);
             }
         }
 
@@ -177,7 +180,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ runId: testRun.id });
 
     } catch (error) {
-        console.error('Failed to submit test job:', error);
+        logger.error('Failed to submit test job', error);
         return NextResponse.json(
             { error: 'Failed to submit test job' },
             { status: 500 }

@@ -2,8 +2,11 @@ import { prisma } from '@/lib/prisma';
 import { runTest } from './test-runner';
 import { TestEvent, RunTestOptions } from '@/types';
 import { config as appConfig } from '@/config/app';
-import { QueueError, DatabaseError, getErrorMessage } from './errors';
+import { getErrorMessage } from './errors';
 import { UsageService } from './usage';
+import { createLogger } from './logger';
+
+const logger = createLogger('queue');
 
 interface Job {
     runId: string;
@@ -44,7 +47,7 @@ export class TestQueue {
                 data: { status: 'QUEUED' }
             });
         } catch (e) {
-            console.error(`Failed to update status for ${runId}`, e);
+            logger.error(`Failed to update status for ${runId}`, e);
         }
 
         this.processNext();
@@ -65,7 +68,7 @@ export class TestQueue {
                 try {
                     await cleanup();
                 } catch (e) {
-                    console.error(`Failed to cleanup ${runId}`, e);
+                    logger.error(`Failed to cleanup ${runId}`, e);
                 }
                 this.cleanupFns.delete(runId);
             }
@@ -86,7 +89,7 @@ export class TestQueue {
                     }
                 });
             } catch (e) {
-                console.error(`Failed to mark ${runId} as cancelled`, e);
+                logger.error(`Failed to mark ${runId} as cancelled`, e);
             }
 
         } else {
@@ -96,7 +99,7 @@ export class TestQueue {
                 prisma.testRun.update({
                     where: { id: runId },
                     data: { status: 'CANCELLED', error: 'Cancelled while queued', completedAt: new Date() }
-                }).catch(console.error);
+                }).catch((error) => logger.error(`Failed to mark ${runId} as cancelled`, error));
 
                 this.logs.delete(runId);
             } else {
@@ -109,7 +112,7 @@ export class TestQueue {
                             });
                         }
                     })
-                    .catch(e => console.error(`Failed to cleanup orphaned run ${runId}`, e));
+                    .catch(error => logger.error(`Failed to cleanup orphaned run ${runId}`, error));
             }
         }
     }
@@ -175,22 +178,35 @@ export class TestQueue {
                 }
             });
 
-            console.log(`[Usage] Test completed - runId: ${runId}, userId: ${userId}, actionCount: ${result.actionCount}`);
+            logger.info('Test completed', {
+                runId,
+                userId,
+                actionCount: result.actionCount
+            });
             if (userId && result.actionCount && result.actionCount > 0) {
                 try {
                     const description = await this.buildUsageDescription(runId);
-                    console.log(`[Usage] Recording ${result.actionCount} AI actions for: ${description}`);
+                    logger.debug('Recording usage', {
+                        runId,
+                        userId,
+                        actionCount: result.actionCount,
+                        description
+                    });
                     await UsageService.recordUsage(userId, result.actionCount, description, runId);
-                    console.log(`[Usage] Successfully recorded usage`);
+                    logger.debug('Usage recorded', { runId, userId });
                 } catch (err) {
-                    console.error(`[Usage] Failed to record usage:`, err);
+                    logger.warn('Failed to record usage', err);
                 }
             } else {
-                console.log(`[Usage] Skipping recording - userId: ${!!userId}, actionCount: ${result.actionCount}`);
+                logger.debug('Skipping usage recording', {
+                    runId,
+                    hasUserId: Boolean(userId),
+                    actionCount: result.actionCount
+                });
             }
 
         } catch (err) {
-            console.error(`Unexpected error in job ${runId}`, err);
+            logger.error(`Unexpected error in job ${runId}`, err);
 
             const current = await prisma.testRun.findUnique({ where: { id: runId }, select: { status: true } });
             if (current?.status !== 'CANCELLED') {

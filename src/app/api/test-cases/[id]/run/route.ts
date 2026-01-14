@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyAuth } from '@/lib/auth';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('api:test-cases:run');
 
 export async function POST(
     request: Request,
@@ -46,7 +49,7 @@ export async function POST(
 
         return NextResponse.json(testRun);
     } catch (error) {
-        console.error('Failed to record test run:', error);
+        logger.error('Failed to record test run', error);
         return NextResponse.json({ error: 'Failed to record test run' }, { status: 500 });
     }
 }

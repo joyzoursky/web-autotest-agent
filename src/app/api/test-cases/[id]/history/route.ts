@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyAuth } from '@/lib/auth';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('api:test-cases:history');
 
 export async function GET(
     request: Request,
@@ -47,7 +50,7 @@ export async function GET(
             pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
         });
     } catch (error) {
-        console.error('Failed to fetch test history:', error);
+        logger.error('Failed to fetch test history', error);
         return NextResponse.json({ error: 'Failed to fetch test history' }, { status: 500 });
     }
 }

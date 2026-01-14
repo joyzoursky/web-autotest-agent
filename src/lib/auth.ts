@@ -1,5 +1,8 @@
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { prisma } from '@/lib/prisma';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('auth');
 
 const AUTHGEAR_ENDPOINT = process.env.NEXT_PUBLIC_AUTHGEAR_ENDPOINT || '';
 const JWKS_URL = `${AUTHGEAR_ENDPOINT}/oauth2/jwks`;
@@ -16,7 +19,7 @@ export async function verifyAuth(request: Request, token?: string) {
     }
 
     if (!finalToken) {
-        console.error("verifyAuth: No token found");
+        logger.debug('verifyAuth: no token found');
         return null;
     }
 
@@ -31,11 +34,11 @@ export async function verifyAuth(request: Request, token?: string) {
                 }
             }
         } catch (e) {
-            console.warn('verifyAuth: failed to map auth sub to userId');
+            logger.warn('verifyAuth: failed to map auth sub to userId', e);
         }
         return payload;
     } catch (error) {
-        console.error("verifyAuth: Token verification failed", error);
+        logger.error('verifyAuth: token verification failed', error);
         return null;
     }
 }

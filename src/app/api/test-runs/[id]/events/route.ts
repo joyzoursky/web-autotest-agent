@@ -1,11 +1,12 @@
-
 import { NextResponse } from 'next/server';
 import { queue } from '@/lib/queue';
 import { prisma } from '@/lib/prisma';
-
 import { verifyAuth } from '@/lib/auth';
+import { createLogger } from '@/lib/logger';
 
 export const dynamic = 'force-dynamic';
+
+const logger = createLogger('api:test-runs:events');
 
 export async function GET(
     request: Request,
@@ -30,83 +31,104 @@ export async function GET(
         return NextResponse.json({ error: 'Test run not found' }, { status: 404 });
     }
 
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
+    let streamClosed = false;
+
     const stream = new ReadableStream({
         async start(controller) {
             const encoder = new TextEncoder();
-            const encode = (data: any) => encoder.encode(`data: ${JSON.stringify(data)}\n\n`);
+            const encode = (data: unknown) => encoder.encode(`data: ${JSON.stringify(data)}\n\n`);
 
-            if (['PASS', 'FAIL', 'CANCELLED'].includes(testRun.status)) {
-                controller.enqueue(encode({ type: 'status', status: testRun.status }));
-
-                if (testRun.result) {
-                    try {
-                        const events = JSON.parse(testRun.result);
-                        if (Array.isArray(events)) {
-                            for (const event of events) {
-                                controller.enqueue(encode(event));
-                            }
-                        }
-                    } catch (e) {
-                    }
-                } else if (testRun.logs) {
-                    try {
-                        const logs = JSON.parse(testRun.logs);
-                        if (Array.isArray(logs)) {
-                            for (const event of logs) {
-                                controller.enqueue(encode(event));
-                            }
-                        }
-                    } catch (e) { }
+            const closeStream = () => {
+                if (streamClosed) return;
+                streamClosed = true;
+                if (pollInterval) {
+                    clearInterval(pollInterval);
                 }
-
-                controller.close();
-                return;
-            }
-
-            const checkInitialStatus = async () => {
-                const currentQueueStatus = queue.getStatus(id);
-                if (currentQueueStatus) {
-                    controller.enqueue(encode({ type: 'status', status: testRun.status }));
-                } else {
-                    controller.enqueue(encode({ type: 'status', status: testRun.status }));
+                try {
+                    controller.close();
+                } catch (error) {
+                    logger.debug('Stream already closed', error);
                 }
             };
 
-            checkInitialStatus();
+            const safeEnqueue = (data: unknown) => {
+                if (streamClosed) return;
+                try {
+                    controller.enqueue(encode(data));
+                } catch (error) {
+                    if (!(error instanceof TypeError && error.message.includes('Controller is already closed'))) {
+                        logger.warn('Stream enqueue failed', error);
+                    }
+                    closeStream();
+                }
+            };
+
+            if (['PASS', 'FAIL', 'CANCELLED'].includes(testRun.status)) {
+                safeEnqueue({ type: 'status', status: testRun.status });
+
+                const storedEvents = testRun.result ?? testRun.logs;
+                if (storedEvents) {
+                    try {
+                        const events = JSON.parse(storedEvents);
+                        if (Array.isArray(events)) {
+                            for (const event of events) {
+                                safeEnqueue(event);
+                            }
+                        }
+                    } catch (error) {
+                        logger.warn('Failed to parse stored events', error);
+                    }
+                }
+
+                closeStream();
+                return;
+            }
+
+            const currentStatus = queue.getStatus(id) ?? testRun.status;
+            safeEnqueue({ type: 'status', status: currentStatus });
 
             let lastIndex = 0;
-            const pollInterval = setInterval(async () => {
+            pollInterval = setInterval(async () => {
+                if (streamClosed) return;
                 try {
                     const status = queue.getStatus(id);
 
                     if (!status) {
-                        const freshRun = await prisma.testRun.findUnique({ where: { id }, select: { status: true, result: true } });
+                        const freshRun = await prisma.testRun.findUnique({
+                            where: { id },
+                            select: { status: true, result: true }
+                        });
                         if (freshRun && ['PASS', 'FAIL', 'CANCELLED'].includes(freshRun.status)) {
-                            clearInterval(pollInterval);
-                            controller.enqueue(encode({ type: 'status', status: freshRun.status }));
-                            controller.close();
+                            if (pollInterval) {
+                                clearInterval(pollInterval);
+                            }
+                            safeEnqueue({ type: 'status', status: freshRun.status });
+                            closeStream();
                             return;
                         }
 
                         if (freshRun && ['RUNNING', 'QUEUED'].includes(freshRun.status)) {
-                            console.warn(`Detected orphaned run ${id} in DB. Marking as FAILED.`);
+                            logger.warn('Detected orphaned run; marking as failed', { runId: id });
 
                             await prisma.testRun.update({
                                 where: { id },
                                 data: {
                                     status: 'FAIL',
-                                    error: 'Test execution interrupted (Server restarted or proces lost)',
+                                    error: 'Test execution interrupted (Server restarted or process lost)',
                                     completedAt: new Date()
                                 }
                             });
 
-                            clearInterval(pollInterval);
-                            controller.enqueue(encode({
+                            if (pollInterval) {
+                                clearInterval(pollInterval);
+                            }
+                            safeEnqueue({
                                 type: 'status',
                                 status: 'FAIL',
-                                error: 'Test execution interrupted (Server restarted or proces lost)'
-                            }));
-                            controller.close();
+                                error: 'Test execution interrupted (Server restarted or process lost)'
+                            });
+                            closeStream();
                             return;
                         }
 
@@ -117,21 +139,24 @@ export async function GET(
                     if (events.length > lastIndex) {
                         const newEvents = events.slice(lastIndex);
                         for (const event of newEvents) {
-                            controller.enqueue(encode(event));
+                            safeEnqueue(event);
                         }
                         lastIndex = events.length;
                     }
 
-                } catch (e) {
-                    console.error('Streaming error', e);
-                    clearInterval(pollInterval);
-                    controller.close();
+                } catch (error) {
+                    if (!streamClosed) {
+                        logger.warn('Streaming error', error);
+                    }
+                    closeStream();
                 }
             }, 500);
-
-            return () => {
+        },
+        cancel() {
+            streamClosed = true;
+            if (pollInterval) {
                 clearInterval(pollInterval);
-            };
+            }
         }
     });
 

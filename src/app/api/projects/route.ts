@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyAuth } from '@/lib/auth';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('api:projects');
 
 export async function GET(request: Request) {
     const authPayload = await verifyAuth(request);
@@ -54,7 +57,7 @@ export async function GET(request: Request) {
 
         return NextResponse.json(projectsWithStatus);
     } catch (error) {
-        console.error('Failed to fetch projects:', error);
+        logger.error('Failed to fetch projects', error);
         return NextResponse.json({ error: 'Failed to fetch projects' }, { status: 500 });
     }
 }
@@ -97,7 +100,7 @@ export async function POST(request: Request) {
 
         return NextResponse.json(project);
     } catch (error) {
-        console.error('Failed to create project:', error);
+        logger.error('Failed to create project', error);
         return NextResponse.json({ error: 'Failed to create project' }, { status: 500 });
     }
 }

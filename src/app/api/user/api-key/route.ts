@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyAuth } from '@/lib/auth';
+import { createLogger } from '@/lib/logger';
 import { encrypt, decrypt, maskApiKey } from '@/lib/crypto';
+
+const logger = createLogger('api:user:api-key');
 
 export const dynamic = 'force-dynamic';
 
@@ -32,7 +35,7 @@ export async function GET(request: Request) {
             maskedKey: maskApiKey(decryptedKey)
         });
     } catch (error) {
-        console.error('Failed to get API key:', error);
+        logger.error('Failed to get API key', error);
         return NextResponse.json({ error: 'Failed to get API key' }, { status: 500 });
     }
 }
@@ -72,7 +75,7 @@ export async function POST(request: Request) {
             maskedKey: maskApiKey(apiKey)
         });
     } catch (error) {
-        console.error('Failed to save API key:', error);
+        logger.error('Failed to save API key', error);
         return NextResponse.json({ error: 'Failed to save API key' }, { status: 500 });
     }
 }
@@ -92,7 +95,7 @@ export async function DELETE(request: Request) {
 
         return NextResponse.json({ success: true });
     } catch (error) {
-        console.error('Failed to delete API key:', error);
+        logger.error('Failed to delete API key', error);
         return NextResponse.json({ error: 'Failed to delete API key' }, { status: 500 });
     }
 }

@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { queue } from '@/lib/queue';
 import { verifyAuth } from '@/lib/auth';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('api:test-runs:cancel');
 
 export const dynamic = 'force-dynamic';
 
@@ -38,7 +41,7 @@ export async function POST(
 
         return NextResponse.json({ success: true, id: testRun.id, status: testRun.status });
     } catch (error) {
-        console.error('Failed to cancel test run:', error);
+        logger.error('Failed to cancel test run', error);
         return NextResponse.json({ error: 'Failed to cancel test run' }, { status: 500 });
     }
 }

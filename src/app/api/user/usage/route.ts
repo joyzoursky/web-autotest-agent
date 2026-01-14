@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyAuth } from '@/lib/auth';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('api:user:usage');
 
 export const dynamic = 'force-dynamic';
 
@@ -61,7 +64,7 @@ export async function GET(request: Request) {
             }
         });
     } catch (error) {
-        console.error('Failed to fetch usage records:', error);
+        logger.error('Failed to fetch usage records', error);
         return NextResponse.json({ error: 'Failed to fetch usage records' }, { status: 500 });
     }
 }

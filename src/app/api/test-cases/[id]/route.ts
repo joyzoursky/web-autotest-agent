@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyAuth } from '@/lib/auth';
+import { createLogger } from '@/lib/logger';
 import { TestStep } from '@/types';
 import { getUploadPath } from '@/lib/file-security';
 import fs from 'fs/promises';
+
+const logger = createLogger('api:test-cases:id');
 
 type AuthPayload = NonNullable<Awaited<ReturnType<typeof verifyAuth>>>;
 
@@ -67,7 +70,7 @@ export async function GET(
 
         return NextResponse.json(parsedTestCase);
     } catch (error) {
-        console.error('Failed to fetch test case:', error);
+        logger.error('Failed to fetch test case', error);
         return NextResponse.json({ error: 'Failed to fetch test case' }, { status: 500 });
     }
 }
@@ -124,7 +127,7 @@ export async function PUT(
 
         return NextResponse.json(testCase);
     } catch (error) {
-        console.error('Failed to update test case:', error);
+        logger.error('Failed to update test case', error);
         return NextResponse.json({ error: 'Failed to update test case' }, { status: 500 });
     }
 }
@@ -167,12 +170,12 @@ export async function DELETE(
         try {
             await fs.rm(uploadPath, { recursive: true, force: true });
         } catch {
-            console.warn(`Failed to delete upload directory: ${uploadPath}`);
+            logger.warn('Failed to delete upload directory', { uploadPath });
         }
 
         return NextResponse.json({ success: true });
     } catch (error) {
-        console.error('Failed to delete test case:', error);
+        logger.error('Failed to delete test case', error);
         return NextResponse.json({ error: 'Failed to delete test case' }, { status: 500 });
     }
 }

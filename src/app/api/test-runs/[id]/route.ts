@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { queue } from '@/lib/queue';
 import { verifyAuth } from '@/lib/auth';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('api:test-runs:id');
 
 export async function GET(
     request: Request,
@@ -52,7 +55,7 @@ export async function GET(
             files
         });
     } catch (error) {
-        console.error('Failed to fetch test run:', error);
+        logger.error('Failed to fetch test run', error);
         return NextResponse.json({ error: 'Failed to fetch test run' }, { status: 500 });
     }
 }
@@ -89,7 +92,7 @@ export async function DELETE(
         try {
             queue.cancel(id);
         } catch (e) {
-            console.error('Failed to cancel job from queue:', e);
+            logger.warn('Failed to cancel job from queue', e);
         }
 
         await prisma.testRun.delete({
@@ -98,7 +101,7 @@ export async function DELETE(
 
         return NextResponse.json({ success: true });
     } catch (error) {
-        console.error('Failed to delete test run:', error);
+        logger.error('Failed to delete test run', error);
         return NextResponse.json({ error: 'Failed to delete test run' }, { status: 500 });
     }
 }

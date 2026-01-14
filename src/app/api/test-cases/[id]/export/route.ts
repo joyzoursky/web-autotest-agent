@@ -2,10 +2,13 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyAuth } from '@/lib/auth';
 import { getFilePath } from '@/lib/file-security';
+import { createLogger } from '@/lib/logger';
 import { exportToMarkdown } from '@/utils/testCaseMarkdown';
 import archiver from 'archiver';
 import fs from 'fs/promises';
 import { PassThrough } from 'stream';
+
+const logger = createLogger('api:test-cases:export');
 
 export async function GET(
     request: Request,
@@ -59,7 +62,7 @@ export async function GET(
                 const fileBuffer = await fs.readFile(filePath);
                 archive.append(fileBuffer, { name: `files/${file.filename}` });
             } catch {
-                console.warn(`File not found on disk: ${filePath}`);
+                logger.warn('File not found on disk', { filePath });
             }
         }
 
@@ -81,7 +84,7 @@ export async function GET(
             },
         });
     } catch (error) {
-        console.error('Failed to export test case:', error);
+        logger.error('Failed to export test case', error);
         return NextResponse.json({ error: 'Failed to export test case' }, { status: 500 });
     }
 }

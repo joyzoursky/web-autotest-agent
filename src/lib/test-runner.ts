@@ -4,11 +4,14 @@ import { TestStep, BrowserConfig, TestEvent, TestResult, RunTestOptions, TestCas
 import { config } from '@/config/app';
 import { ConfigurationError, BrowserError, TestExecutionError, PlaywrightCodeError, getErrorMessage } from './errors';
 import { getFilePath } from './file-security';
+import { createLogger as createServerLogger } from '@/lib/logger';
 import { validateTargetUrl } from './url-security';
 import { Script, createContext } from 'node:vm';
 import path from 'node:path';
 
 export const maxDuration = config.test.maxDuration;
+
+const serverLogger = createServerLogger('test-runner');
 
 type EventHandler = (event: TestEvent) => void;
 
@@ -286,7 +289,7 @@ async function setupBrowserInstances(
             onTaskStartTip: async (tip) => {
                 if (actionCounter) {
                     actionCounter.count++;
-                    console.log(`[Usage] Action counted: ${actionCounter.count} - ${tip}`);
+                    serverLogger.debug('AI action counted', { count: actionCounter.count });
                 }
                 log(`[${niceName}] 🤖 ${tip}`, 'info', browserId);
                 if (page && !page.isClosed()) {
@@ -539,7 +542,7 @@ async function captureErrorScreenshots(
             }
         }
     } catch (e) {
-        console.error('Failed to capture error screenshot', e);
+        serverLogger.warn('Failed to capture error screenshot', e);
     }
 }
 
@@ -547,7 +550,7 @@ async function cleanup(browser: Browser): Promise<void> {
     try {
         if (browser) await browser.close();
     } catch (e) {
-        console.error('Error closing browser:', e);
+        serverLogger.warn('Error closing browser', e);
     }
 }
 

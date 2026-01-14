@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyAuth } from '@/lib/auth';
+import { createLogger } from '@/lib/logger';
 import { TestStep } from '@/types';
+
+const logger = createLogger('api:projects:test-cases');
 
 export const dynamic = 'force-dynamic';
 
@@ -40,7 +43,7 @@ export async function GET(
 
         return NextResponse.json(testCases);
     } catch (error) {
-        console.error('Failed to fetch test cases:', error);
+        logger.error('Failed to fetch test cases', error);
         return NextResponse.json({ error: 'Failed to fetch test cases' }, { status: 500 });
     }
 }
@@ -89,7 +92,7 @@ export async function POST(
 
         return NextResponse.json(testCase);
     } catch (error) {
-        console.error('Failed to create test case:', error);
+        logger.error('Failed to create test case', error);
         return NextResponse.json({ error: 'Failed to create test case' }, { status: 500 });
     }
 }

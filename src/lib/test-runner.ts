@@ -21,6 +21,8 @@ type InputFilesParam = Parameters<Page['setInputFiles']>[1];
 
 type FilePayloadWithPath = FilePayload & { path: string };
 
+type CredentialContext = Pick<BrowserConfig, 'username' | 'password'>;
+
 function applyAgentGuardrails(instruction: string): string {
     const guardrails = config.test.security.agentGuardrails.trim();
     if (!guardrails) return instruction;
@@ -347,6 +349,7 @@ async function executePlaywrightCode(
     stepIndex: number,
     log: ReturnType<typeof createLogger>,
     onEvent: EventHandler,
+    credentials?: CredentialContext,
     browserId?: string
 ): Promise<void> {
     const timeoutMs = 30000;
@@ -374,7 +377,15 @@ async function executePlaywrightCode(
     }
 
     const safePage = createSafePage(page, stepIndex, code);
-    const context = createContext({ page: safePage });
+    const credentialBindings = {
+        username: credentials?.username,
+        password: credentials?.password
+    };
+    const context = createContext({
+        page: safePage,
+        credentials: credentialBindings,
+        ...credentialBindings
+    });
 
     log(`[Step ${stepIndex + 1}] Executing ${statements.length} statement(s)...`, 'info', browserId);
 
@@ -452,6 +463,10 @@ async function executeSteps(
         const agent = agents.get(effectiveTargetId);
         const page = pages.get(effectiveTargetId);
         const browserConfig = targetConfigs[effectiveTargetId];
+        const credentials: CredentialContext = {
+            username: browserConfig?.username,
+            password: browserConfig?.password
+        };
         const niceName = getBrowserNiceName(effectiveTargetId);
 
         try {
@@ -464,7 +479,7 @@ async function executeSteps(
             }
 
             if (stepType === 'playwright-code') {
-                await executePlaywrightCode(step.action, page, i, log, onEvent, effectiveTargetId);
+                await executePlaywrightCode(step.action, page, i, log, onEvent, credentials, effectiveTargetId);
             } else {
                 if (!agent) {
                     throw new TestExecutionError(

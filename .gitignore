@@ -75,3 +75,6 @@ dev.db
 
 # Uploaded test files
 /uploads/
+
+# Regression Test Cases
+/test-cases/

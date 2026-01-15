@@ -59,12 +59,8 @@ src/
 5. **Match existing style** - No reformatting unrelated code
 
 ## Workflow & Commits
-- Use atomic commits for all tasks (one concern per commit).
-- Stage only related files before each commit.
-- Commit messages should be short verb + scope (e.g., "Add ownership checks").
-- Avoid mixing refactors with behavior changes.
-- For review tasks, read `docs/review-playbook.md` first and follow its checklist.
 - For change workflow details, read `docs/workflow-playbook.md`.
+- For review tasks, read `docs/review-playbook.md` first and follow its checklist.
 
 ## Code Style
 **Code as Documentation**: Write self-explanatory code. Avoid comments unless absolutely necessary.

@@ -3,6 +3,7 @@
 ## Goals
 - Keep changes small, reviewable, and reversible.
 - Preserve atomic commits for every task.
+- Avoid mixing refactors with behavior changes.
 
 ## Workflow
 1. Scope the change and list impacted files.

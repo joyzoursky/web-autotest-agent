@@ -2,6 +2,11 @@
   "name": "skytest-agent",
   "version": "0.1.0",
   "private": true,
+  "overrides": {
+    "hono": ">=4.11.4",
+    "@modelcontextprotocol/sdk": ">=1.24.0",
+    "js-yaml": ">=4.1.1"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",

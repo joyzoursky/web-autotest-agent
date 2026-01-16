@@ -4,7 +4,7 @@ import { PlaywrightAgent } from '@midscene/web/playwright';
 import { TestStep, BrowserConfig, TestEvent, TestResult, RunTestOptions, TestCaseFile } from '@/types';
 import { config } from '@/config/app';
 import { ConfigurationError, TestExecutionError, PlaywrightCodeError, getErrorMessage } from './errors';
-import { getFilePath } from './file-security';
+import { getFilePath, getUploadPath } from './file-security';
 import { createLogger as createServerLogger } from '@/lib/logger';
 import { withMidsceneApiKey } from '@/lib/midscene-env';
 import { validateTargetUrl } from './url-security';
@@ -79,11 +79,47 @@ function validatePlaywrightCode(code: string, stepIndex: number) {
 
 interface SetInputFilesPolicy {
     allowedFilePaths: ReadonlySet<string>;
+    /**
+     * Absolute directory for the current test case uploads, e.g. <cwd>/uploads/<testCaseId>.
+     * If present, setInputFiles is allowed to reference any file under this directory.
+     * If allowedFilePaths is non-empty, the policy is further restricted to that allowlist.
+     */
+    allowedTestCaseDir?: string;
 }
 
 function normalizeUploadPath(filePath: string, policy: SetInputFilesPolicy, stepIndex: number, code: string): string {
-    const uploadRoot = path.resolve(process.cwd(), config.files.uploadDir);
     const resolved = path.resolve(process.cwd(), filePath);
+
+    if (policy.allowedTestCaseDir) {
+        const testCaseDir = path.resolve(policy.allowedTestCaseDir);
+        const prefix = testCaseDir.endsWith(path.sep) ? testCaseDir : `${testCaseDir}${path.sep}`;
+
+        if (!resolved.startsWith(prefix)) {
+            throw new PlaywrightCodeError(
+                'Only files uploaded for this test case can be used with setInputFiles',
+                stepIndex,
+                code
+            );
+        }
+
+        // If no per-step allowlist is set, allow any file under the test case upload directory.
+        if (policy.allowedFilePaths.size === 0) {
+            return resolved;
+        }
+
+        if (!policy.allowedFilePaths.has(resolved)) {
+            throw new PlaywrightCodeError(
+                'Only files attached to this step can be used with setInputFiles',
+                stepIndex,
+                code
+            );
+        }
+
+        return resolved;
+    }
+
+    // Fallback: only allow paths within the global uploads directory.
+    const uploadRoot = path.resolve(process.cwd(), config.files.uploadDir);
     const prefix = uploadRoot.endsWith(path.sep) ? uploadRoot : `${uploadRoot}${path.sep}`;
 
     if (!resolved.startsWith(prefix)) {
@@ -490,6 +526,7 @@ function parseCodeIntoStatements(code: string): string[] {
 
 interface PlaywrightCodeStepContext {
     allowedFilePaths: ReadonlySet<string>;
+    allowedTestCaseDir?: string;
     stepFiles: Record<string, string>;
 }
 
@@ -529,7 +566,8 @@ async function executePlaywrightCode(
     }
 
     const safePage = createSafePage(page, stepIndex, code, {
-        allowedFilePaths: stepContext?.allowedFilePaths ?? new Set<string>()
+        allowedFilePaths: stepContext?.allowedFilePaths ?? new Set<string>(),
+        allowedTestCaseDir: stepContext?.allowedTestCaseDir
     });
     const credentialBindings = {
         username: credentials?.username,
@@ -652,8 +690,15 @@ function resolvePlaywrightCodeStepContext(
 ): PlaywrightCodeStepContext {
     const stepFiles: Record<string, string> = {};
 
-    if (!step.files || step.files.length === 0 || !testCaseId || !files) {
+    if (!testCaseId) {
         return { stepFiles, allowedFilePaths: new Set<string>() };
+    }
+
+    const allowedTestCaseDir = getUploadPath(testCaseId);
+
+    if (!step.files || step.files.length === 0 || !files) {
+        // No per-step attachments. Allow any file within this test case's upload directory.
+        return { stepFiles, allowedFilePaths: new Set<string>(), allowedTestCaseDir };
     }
 
     for (const fileId of step.files) {
@@ -664,7 +709,7 @@ function resolvePlaywrightCodeStepContext(
 
     const allowedFilePaths = new Set(Object.values(stepFiles).map((filePath) => path.resolve(filePath)));
 
-    return { stepFiles, allowedFilePaths };
+    return { stepFiles, allowedFilePaths, allowedTestCaseDir };
 }
 
 async function executeSteps(

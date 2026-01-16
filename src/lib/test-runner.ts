@@ -206,6 +206,11 @@ function createSafePage(page: Page, stepIndex: number, code: string, policy: Set
 
                 const value = Reflect.get(objTarget, prop) as unknown;
                 if (typeof value === 'function') {
+                    const propName = typeof prop === 'string' ? prop : '';
+                    if (propName.startsWith('_')) {
+                        return (value as (...args: unknown[]) => unknown).bind(objTarget);
+                    }
+
                     return (...args: unknown[]) => {
                         const result = (value as (...args: unknown[]) => unknown).apply(objTarget, args);
                         return wrapValue(result);

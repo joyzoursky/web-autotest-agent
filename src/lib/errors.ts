@@ -94,8 +94,23 @@ export function isPlaywrightCodeError(error: unknown): error is PlaywrightCodeEr
 }
 
 export function getErrorMessage(error: unknown): string {
+    const errorString = String(error);
+
+    if (errorString && !errorString.includes('[object Object]')) {
+        return errorString.replace(/^Error:\s*/, '');
+    }
+
     if (error instanceof Error) {
+        const midsceneError = error as Error & { reason?: string };
+        if (midsceneError.reason) {
+            return `${error.message}\nReason: ${midsceneError.reason}`;
+        }
         return error.message;
     }
-    return String(error);
+
+    if (error && typeof error === 'object' && 'message' in error) {
+        return String((error as { message: unknown }).message);
+    }
+
+    return errorString;
 }

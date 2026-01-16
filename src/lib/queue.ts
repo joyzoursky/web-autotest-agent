@@ -214,7 +214,9 @@ export class TestQueue {
                     where: { id: runId },
                     data: {
                         status: 'FAIL',
-                        error: String(err),
+                        error: getErrorMessage(err),
+                        result: JSON.stringify(logBuffer),
+                        logs: JSON.stringify(logBuffer),
                         completedAt: new Date()
                     }
                 });

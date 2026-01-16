@@ -103,6 +103,22 @@ export async function GET(
                             if (pollInterval) {
                                 clearInterval(pollInterval);
                             }
+
+                            // Send any remaining events from the database that weren't streamed yet
+                            if (freshRun.result) {
+                                try {
+                                    const storedEvents = JSON.parse(freshRun.result);
+                                    if (Array.isArray(storedEvents)) {
+                                        const remainingEvents = storedEvents.slice(lastIndex);
+                                        for (const event of remainingEvents) {
+                                            safeEnqueue(event);
+                                        }
+                                    }
+                                } catch (e) {
+                                    logger.warn('Failed to parse stored events during completion', e);
+                                }
+                            }
+
                             safeEnqueue({ type: 'status', status: freshRun.status });
                             closeStream();
                             return;

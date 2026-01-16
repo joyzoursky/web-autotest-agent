@@ -271,8 +271,8 @@ async function captureScreenshot(
 }
 
 function validateConfiguration(
-    url: string,
-    prompt: string,
+    url: string | undefined,
+    prompt: string | undefined,
     steps: TestStep[] | undefined,
     browserConfig: Record<string, BrowserConfig> | undefined,
     defaultCredentials?: CredentialContext
@@ -846,6 +846,9 @@ export async function runTest(options: RunTestOptions): Promise<TestResult> {
             if (hasSteps) {
                 await executeSteps(steps!, browserInstances, targetConfigs, onEvent, runId, signal, testCaseId, files);
             } else {
+                if (!prompt) {
+                    throw new ConfigurationError('Instructions (Prompt or Steps) are required');
+                }
                 await executePrompt(prompt, browserInstances, targetConfigs, runId);
             }
 

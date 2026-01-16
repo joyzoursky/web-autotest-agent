@@ -250,11 +250,15 @@ async function captureScreenshot(
 ) {
     try {
         if (page.isClosed()) return;
-        const buffer = await page.screenshot({
-            type: config.test.screenshot.type,
-            quality: config.test.screenshot.quality
-        });
-        const base64 = `data:image/jpeg;base64,${buffer.toString('base64')}`;
+        const type = config.test.screenshot.type;
+        const screenshotOptions: Parameters<Page['screenshot']>[0] = { type };
+        if (type === 'jpeg') {
+            screenshotOptions.quality = config.test.screenshot.quality;
+        }
+
+        const buffer = await page.screenshot(screenshotOptions);
+        const mime = type === 'jpeg' ? 'image/jpeg' : `image/${type}`;
+        const base64 = `data:${mime};base64,${buffer.toString('base64')}`;
         onEvent({
             type: 'screenshot',
             data: { src: base64, label },
@@ -340,7 +344,7 @@ async function setupBrowserInstances(
     const browserIds = Object.keys(targetConfigs);
 
     for (const browserId of browserIds) {
-        if (signal?.aborted) break;
+        if (signal?.aborted) throw new Error('Aborted');
 
         const browserConfig = targetConfigs[browserId];
         const niceName = getBrowserNiceName(browserId);
@@ -660,6 +664,7 @@ async function executeSteps(
     browserInstances: BrowserInstances,
     targetConfigs: Record<string, BrowserConfig>,
     onEvent: EventHandler,
+    runId: string,
     signal?: AbortSignal,
     testCaseId?: string,
     files?: TestCaseFile[]
@@ -688,7 +693,7 @@ async function executeSteps(
             if (!page) {
                 throw new TestExecutionError(
                     `Browser instance '${effectiveTargetId}' not found for step: ${step.action}`,
-                    '',
+                    runId,
                     step.action
                 );
             }
@@ -700,7 +705,7 @@ async function executeSteps(
                 if (!agent) {
                     throw new TestExecutionError(
                         `Browser agent '${effectiveTargetId}' not found for AI step: ${step.action}`,
-                        '',
+                        runId,
                         step.action
                     );
                 }
@@ -747,7 +752,8 @@ async function executeSteps(
 async function executePrompt(
     prompt: string,
     browserInstances: BrowserInstances,
-    targetConfigs: Record<string, BrowserConfig>
+    targetConfigs: Record<string, BrowserConfig>,
+    runId: string
 ): Promise<void> {
     const { agents } = browserInstances;
     const browserIds = Object.keys(targetConfigs);
@@ -756,7 +762,7 @@ async function executePrompt(
     const browserConfig = targetConfigs[targetId];
 
     if (!agent) {
-        throw new TestExecutionError('No browser agent available', '');
+        throw new TestExecutionError('No browser agent available', runId);
     }
 
     const promptWithCredentials = applyCredentialPlaceholders(prompt, browserConfig);
@@ -838,9 +844,9 @@ export async function runTest(options: RunTestOptions): Promise<TestResult> {
             if (signal?.aborted) throw new Error('Aborted');
 
             if (hasSteps) {
-                await executeSteps(steps!, browserInstances, targetConfigs, onEvent, signal, testCaseId, files);
+                await executeSteps(steps!, browserInstances, targetConfigs, onEvent, runId, signal, testCaseId, files);
             } else {
-                await executePrompt(prompt, browserInstances, targetConfigs);
+                await executePrompt(prompt, browserInstances, targetConfigs, runId);
             }
 
             if (signal?.aborted) throw new Error('Aborted');

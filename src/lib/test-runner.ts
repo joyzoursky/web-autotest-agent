@@ -19,8 +19,6 @@ type EventHandler = (event: TestEvent) => void;
 
 const credentialPlaceholders = config.test.security.credentialPlaceholders;
 
-type InputFilesParam = Parameters<Page['setInputFiles']>[1];
-
 type FilePayloadWithPath = Record<string, unknown> & { path: string };
 
 type CredentialContext = Pick<BrowserConfig, 'username' | 'password'>;
@@ -78,7 +76,11 @@ function validatePlaywrightCode(code: string, stepIndex: number) {
     }
 }
 
-function normalizeUploadPath(filePath: string, stepIndex: number, code: string): string {
+interface SetInputFilesPolicy {
+    allowedFilePaths: ReadonlySet<string>;
+}
+
+function normalizeUploadPath(filePath: string, policy: SetInputFilesPolicy, stepIndex: number, code: string): string {
     const uploadRoot = path.resolve(process.cwd(), config.files.uploadDir);
     const resolved = path.resolve(process.cwd(), filePath);
     const prefix = uploadRoot.endsWith(path.sep) ? uploadRoot : `${uploadRoot}${path.sep}`;
@@ -86,6 +88,22 @@ function normalizeUploadPath(filePath: string, stepIndex: number, code: string):
     if (!resolved.startsWith(prefix)) {
         throw new PlaywrightCodeError(
             'Only files uploaded for this test case can be used with setInputFiles',
+            stepIndex,
+            code
+        );
+    }
+
+    if (policy.allowedFilePaths.size === 0) {
+        throw new PlaywrightCodeError(
+            'No files were attached to this step. Attach files to the step before calling setInputFiles.',
+            stepIndex,
+            code
+        );
+    }
+
+    if (!policy.allowedFilePaths.has(resolved)) {
+        throw new PlaywrightCodeError(
+            'Only files attached to this step can be used with setInputFiles',
             stepIndex,
             code
         );
@@ -101,48 +119,107 @@ function hasFilePath(value: unknown): value is FilePayloadWithPath {
     return typeof pathValue === 'string' && pathValue.length > 0;
 }
 
-function sanitizeInputFiles(files: InputFilesParam, stepIndex: number, code: string): InputFilesParam {
+function sanitizeInputFiles(files: unknown, policy: SetInputFilesPolicy, stepIndex: number, code: string): unknown {
     if (typeof files === 'string') {
-        return normalizeUploadPath(files, stepIndex, code);
+        return normalizeUploadPath(files, policy, stepIndex, code);
     }
 
     if (Array.isArray(files)) {
         return files.map((file) => {
             if (typeof file === 'string') {
-                return normalizeUploadPath(file, stepIndex, code);
+                return normalizeUploadPath(file, policy, stepIndex, code);
             }
             if (hasFilePath(file)) {
-                return { ...file, path: normalizeUploadPath(file.path, stepIndex, code) };
+                return { ...file, path: normalizeUploadPath(file.path, policy, stepIndex, code) };
             }
             return file;
-        }) as unknown as InputFilesParam;
+        });
     }
 
     if (hasFilePath(files)) {
-        return { ...files, path: normalizeUploadPath(files.path, stepIndex, code) } as unknown as InputFilesParam;
+        return { ...files, path: normalizeUploadPath(files.path, policy, stepIndex, code) };
     }
 
     return files;
 }
 
-function createSafePage(page: Page, stepIndex: number, code: string): Page {
-    return new Proxy(page, {
-        get(target, prop) {
-            if (prop === 'setInputFiles') {
-                return async (...args: Parameters<Page['setInputFiles']>) => {
-                    const [selector, files, options] = args;
-                    const sanitizedFiles = sanitizeInputFiles(files, stepIndex, code);
-                    return target.setInputFiles(selector, sanitizedFiles, options);
-                };
-            }
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+    if (!value || (typeof value !== 'object' && typeof value !== 'function')) return false;
+    return 'then' in value && typeof (value as { then?: unknown }).then === 'function';
+}
 
-            const value = Reflect.get(target, prop) as unknown;
-            if (typeof value === 'function') {
-                return (value as (...args: unknown[]) => unknown).bind(target);
-            }
-            return value;
+function hasSetInputFilesMethod(
+    value: unknown
+): value is Record<string, unknown> & { setInputFiles: (...args: unknown[]) => unknown } {
+    if (!value || typeof value !== 'object') return false;
+    if (!('setInputFiles' in value)) return false;
+    return typeof (value as { setInputFiles?: unknown }).setInputFiles === 'function';
+}
+
+function createSafePage(page: Page, stepIndex: number, code: string, policy: SetInputFilesPolicy): Page {
+    const proxyCache = new WeakMap<object, object>();
+
+    const sanitizeSetInputFilesArgs = (args: unknown[]): unknown[] => {
+        if (args.length === 0) return args;
+
+        if (typeof args[0] === 'string' && args.length >= 2) {
+            const [selector, files, ...rest] = args;
+            return [selector, sanitizeInputFiles(files, policy, stepIndex, code), ...rest];
         }
-    }) as Page;
+
+        const [files, ...rest] = args;
+        return [sanitizeInputFiles(files, policy, stepIndex, code), ...rest];
+    };
+
+    const wrapValue = (value: unknown): unknown => {
+        if (isThenable(value)) {
+            return (value as PromiseLike<unknown>).then((resolved) => wrapValue(resolved));
+        }
+
+        if (Array.isArray(value)) {
+            return value.map((item) => wrapValue(item));
+        }
+
+        if (hasSetInputFilesMethod(value)) {
+            return wrapObject(value);
+        }
+
+        return value;
+    };
+
+    const wrapObject = <T extends object>(target: T): T => {
+        const cached = proxyCache.get(target);
+        if (cached) return cached as T;
+
+        const proxy = new Proxy(target, {
+            get(objTarget, prop) {
+                if (prop === 'setInputFiles') {
+                    const original = Reflect.get(objTarget, prop) as unknown;
+                    if (typeof original !== 'function') return original;
+
+                    return async (...args: unknown[]) => {
+                        const sanitizedArgs = sanitizeSetInputFilesArgs(args);
+                        return (original as (...args: unknown[]) => unknown).apply(objTarget, sanitizedArgs);
+                    };
+                }
+
+                const value = Reflect.get(objTarget, prop) as unknown;
+                if (typeof value === 'function') {
+                    return (...args: unknown[]) => {
+                        const result = (value as (...args: unknown[]) => unknown).apply(objTarget, args);
+                        return wrapValue(result);
+                    };
+                }
+
+                return value;
+            }
+        });
+
+        proxyCache.set(target, proxy);
+        return proxy as T;
+    };
+
+    return wrapObject(page);
 }
 
 interface BrowserInstances {
@@ -398,6 +475,11 @@ function parseCodeIntoStatements(code: string): string[] {
     return statements;
 }
 
+interface PlaywrightCodeStepContext {
+    allowedFilePaths: ReadonlySet<string>;
+    stepFiles: Record<string, string>;
+}
+
 async function executePlaywrightCode(
     code: string,
     page: Page,
@@ -405,6 +487,7 @@ async function executePlaywrightCode(
     log: ReturnType<typeof createLogger>,
     onEvent: EventHandler,
     credentials?: CredentialContext,
+    stepContext?: PlaywrightCodeStepContext,
     browserId?: string
 ): Promise<void> {
     const timeoutMs = 30000;
@@ -431,11 +514,14 @@ async function executePlaywrightCode(
         return;
     }
 
-    const safePage = createSafePage(page, stepIndex, code);
+    const safePage = createSafePage(page, stepIndex, code, {
+        allowedFilePaths: stepContext?.allowedFilePaths ?? new Set<string>()
+    });
     const credentialBindings = {
         username: credentials?.username,
         password: credentials?.password
     };
+    const stepFiles = stepContext?.stepFiles ?? {};
     const context = createContext({
         page: safePage,
         expect: playwrightExpect,
@@ -444,6 +530,8 @@ async function executePlaywrightCode(
         setInterval,
         clearInterval,
         credentials: credentialBindings,
+        stepFiles,
+        files: stepFiles,
         ...credentialBindings
     });
 
@@ -488,22 +576,26 @@ async function executePlaywrightCode(
     }
 }
 
-function resolveFilePaths(
+function resolvePlaywrightCodeStepContext(
     step: TestStep,
     testCaseId: string | undefined,
     files: TestCaseFile[] | undefined
-): string[] {
+): PlaywrightCodeStepContext {
+    const stepFiles: Record<string, string> = {};
+
     if (!step.files || step.files.length === 0 || !testCaseId || !files) {
-        return [];
+        return { stepFiles, allowedFilePaths: new Set<string>() };
     }
 
-    return step.files
-        .map(fileId => {
-            const file = files.find(f => f.id === fileId);
-            if (!file) return null;
-            return getFilePath(testCaseId, file.storedName);
-        })
-        .filter((p): p is string => p !== null);
+    for (const fileId of step.files) {
+        const file = files.find((f) => f.id === fileId);
+        if (!file) continue;
+        stepFiles[fileId] = getFilePath(testCaseId, file.storedName);
+    }
+
+    const allowedFilePaths = new Set(Object.values(stepFiles).map((filePath) => path.resolve(filePath)));
+
+    return { stepFiles, allowedFilePaths };
 }
 
 async function executeSteps(
@@ -545,7 +637,8 @@ async function executeSteps(
             }
 
             if (stepType === 'playwright-code') {
-                await executePlaywrightCode(step.action, page, i, log, onEvent, credentials, effectiveTargetId);
+                const stepContext = resolvePlaywrightCodeStepContext(step, testCaseId, files);
+                await executePlaywrightCode(step.action, page, i, log, onEvent, credentials, stepContext, effectiveTargetId);
             } else {
                 if (!agent) {
                     throw new TestExecutionError(

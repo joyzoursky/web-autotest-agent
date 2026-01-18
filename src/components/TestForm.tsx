@@ -5,6 +5,7 @@ import { TestStep, BrowserConfig, TestCaseFile } from '@/types';
 import { config } from '@/config/app';
 import SimpleForm from './SimpleForm';
 import BuilderForm from './BuilderForm';
+import { useI18n } from '@/i18n';
 
 interface TestData {
     url: string;
@@ -36,6 +37,8 @@ interface BrowserEntry {
 }
 
 export default function TestForm({ onSubmit, isLoading, initialData, showNameInput, readOnly, onExport, onImport, testCaseId, files, onFilesChange, onEnsureTestCase }: TestFormProps) {
+    const { t } = useI18n();
+
     const [name, setName] = useState(() => initialData?.name || '');
     const [prompt, setPrompt] = useState(() => initialData?.prompt || '');
 
@@ -134,34 +137,29 @@ export default function TestForm({ onSubmit, isLoading, initialData, showNameInp
     }, [mode, steps.length, browsers]);
 
     const handleLoadSampleData = () => {
+        const usernamePlaceholder = config.test.security.credentialPlaceholders.username;
+        const passwordPlaceholder = config.test.security.credentialPlaceholders.password;
+        const placeholderVars = { username: usernamePlaceholder, password: passwordPlaceholder };
+
         if (mode === 'simple') {
-            setName('Simple Login Test');
+            setName(t('sample.simple.name'));
             setSimpleUrl('https://www.saucedemo.com');
             setSimpleUsername('standard_user');
             setSimplePassword('secret_sauce');
-            const usernamePlaceholder = config.test.security.credentialPlaceholders.username;
-            const passwordPlaceholder = config.test.security.credentialPlaceholders.password;
-
-            setPrompt(`Login with username ${usernamePlaceholder} and password ${passwordPlaceholder}.
-Add the "Sauce Labs Backpack" to the cart.
-Click on the cart icon.
-Verify that "Sauce Labs Backpack" is in the cart.`);
+            setPrompt(t('sample.simple.instructions', placeholderVars));
         } else {
-            const usernamePlaceholder = config.test.security.credentialPlaceholders.username;
-            const passwordPlaceholder = config.test.security.credentialPlaceholders.password;
-
-            setName('Cross-Browser Session Isolation');
+            setName(t('sample.multi.name'));
             setBrowsers([
                 { id: 'browser_a', config: { url: 'https://www.saucedemo.com', username: 'standard_user', password: 'secret_sauce' } },
                 { id: 'browser_b', config: { url: 'https://www.saucedemo.com', username: 'visual_user', password: 'secret_sauce' } }
             ]);
             setSteps([
-                { id: "1", target: "browser_a", action: `Login with username ${usernamePlaceholder} and password ${passwordPlaceholder}.` },
-                { id: "2", target: "browser_b", action: `Login with username ${usernamePlaceholder} and password ${passwordPlaceholder}.` },
-                { id: "3", target: "browser_a", action: "Add 'Sauce Labs Backpack' to cart" },
-                { id: "4", target: "browser_b", action: "Add 'Sauce Labs Bike Light' to cart" },
-                { id: "5", target: "browser_a", action: "Click on the cart icon.\nVerify ONLY 'Sauce Labs Backpack' is in the cart." },
-                { id: "6", target: "browser_b", action: "Click on the cart icon.\nVerify ONLY 'Sauce Labs Bike Light' is in the cart." }
+                { id: "1", target: "browser_a", action: t('sample.multi.step1', placeholderVars) },
+                { id: "2", target: "browser_b", action: t('sample.multi.step2', placeholderVars) },
+                { id: "3", target: "browser_a", action: t('sample.multi.step3') },
+                { id: "4", target: "browser_b", action: t('sample.multi.step4') },
+                { id: "5", target: "browser_a", action: t('sample.multi.step5') },
+                { id: "6", target: "browser_b", action: t('sample.multi.step6') }
             ]);
         }
     };
@@ -207,7 +205,7 @@ Verify that "Sauce Labs Backpack" is in the cart.`);
         <form onSubmit={handleSubmit} className="glass-panel h-[800px] flex flex-col">
             <div className={`p-6 ${!readOnly ? 'pb-4 border-b border-gray-200' : 'pb-6'}`}>
                 <div className="flex items-center justify-between">
-                    <h2 className="text-xl font-semibold text-foreground">Test Configuration</h2>
+                    <h2 className="text-xl font-semibold text-foreground">{t('testForm.title')}</h2>
                     {(onExport || onImport) && (
                         <div className="flex items-center gap-2">
                             {onImport && (
@@ -215,12 +213,12 @@ Verify that "Sauce Labs Backpack" is in the cart.`);
                                     type="button"
                                     onClick={onImport}
                                     className="px-3 py-1.5 bg-white text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors flex items-center gap-1.5 text-sm"
-                                    title="Import test case from markdown"
+                                    title={t('testForm.importTitle')}
                                 >
                                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                                     </svg>
-                                    Import
+                                    {t('testForm.import')}
                                 </button>
                             )}
                             {onExport && (
@@ -228,12 +226,12 @@ Verify that "Sauce Labs Backpack" is in the cart.`);
                                     type="button"
                                     onClick={onExport}
                                     className="px-3 py-1.5 bg-white text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 transition-colors flex items-center gap-1.5 text-sm"
-                                    title="Export test case to markdown"
+                                    title={t('testForm.exportTitle')}
                                 >
                                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                                     </svg>
-                                    Export
+                                    {t('testForm.export')}
                                 </button>
                             )}
                         </div>
@@ -250,7 +248,7 @@ Verify that "Sauce Labs Backpack" is in the cart.`);
                                     : 'text-gray-500 hover:text-gray-900'
                                     }`}
                             >
-                                Simple Instructions
+                                {t('testForm.mode.simple')}
                             </button>
                             <button
                                 type="button"
@@ -260,7 +258,7 @@ Verify that "Sauce Labs Backpack" is in the cart.`);
                                     : 'text-gray-500 hover:text-gray-900'
                                     }`}
                             >
-                                Multi-Browser Flow
+                                {t('testForm.mode.builder')}
                             </button>
                         </div>
 
@@ -272,7 +270,7 @@ Verify that "Sauce Labs Backpack" is in the cart.`);
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                             </svg>
-                            Test with Sample Data
+                            {t('testForm.sampleData')}
                         </button>
                     </div>
                 )}
@@ -282,13 +280,13 @@ Verify that "Sauce Labs Backpack" is in the cart.`);
                 {showNameInput && (
                     <div className="space-y-2">
                         <label className="block text-sm font-medium text-foreground">
-                            Test Case Name
+                            {t('testForm.testCaseName')}
                         </label>
                         <input
                             type="text"
                             required
                             className="input-field"
-                            placeholder="e.g. Login and Add to Cart"
+                            placeholder={t('testForm.testCaseName.placeholder')}
                             value={name}
                             onChange={(e) => setName(e.target.value)}
                             disabled={readOnly}
@@ -346,7 +344,7 @@ Verify that "Sauce Labs Backpack" is in the cart.`);
                                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                 </svg>
-                                <span>Running Test...</span>
+                                <span>{t('testForm.running')}</span>
                             </>
                         ) : (
                             <>
@@ -354,7 +352,7 @@ Verify that "Sauce Labs Backpack" is in the cart.`);
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
-                                <span>Run Test</span>
+                                <span>{t('testForm.run')}</span>
                             </>
                         )}
                     </button>
